@@ -72,11 +72,6 @@ impl ConversationState {
         self.history = history;
         self
     }
-
-    /// 添加单条历史消息
-    pub fn add_history_message(&mut self, message: Message) {
-        self.history.push(message);
-    }
 }
 
 /// 当前消息容器
@@ -136,11 +131,6 @@ impl UserInputMessage {
         self
     }
 
-    /// 添加单张图片
-    pub fn add_image(&mut self, image: KiroImage) {
-        self.images.push(image);
-    }
-
     /// 设置来源
     pub fn with_origin(mut self, origin: impl Into<String>) -> Self {
         self.origin = Some(origin.into());
@@ -174,20 +164,10 @@ impl UserInputMessageContext {
         self
     }
 
-    /// 添加单个工具
-    pub fn add_tool(&mut self, tool: Tool) {
-        self.tools.push(tool);
-    }
-
     /// 设置工具结果
     pub fn with_tool_results(mut self, results: Vec<ToolResult>) -> Self {
         self.tool_results = results;
         self
-    }
-
-    /// 添加单个工具结果
-    pub fn add_tool_result(&mut self, result: ToolResult) {
-        self.tool_results.push(result);
     }
 }
 
@@ -213,26 +193,6 @@ impl KiroImage {
             },
         }
     }
-
-    /// 创建 JPEG 图片
-    pub fn jpeg(base64_data: impl Into<String>) -> Self {
-        Self::from_base64("jpeg", base64_data)
-    }
-
-    /// 创建 PNG 图片
-    pub fn png(base64_data: impl Into<String>) -> Self {
-        Self::from_base64("png", base64_data)
-    }
-
-    /// 创建 GIF 图片
-    pub fn gif(base64_data: impl Into<String>) -> Self {
-        Self::from_base64("gif", base64_data)
-    }
-
-    /// 创建 WebP 图片
-    pub fn webp(base64_data: impl Into<String>) -> Self {
-        Self::from_base64("webp", base64_data)
-    }
 }
 
 /// Kiro 图片数据源
@@ -254,6 +214,7 @@ pub enum Message {
     Assistant(HistoryAssistantMessage),
 }
 
+#[allow(dead_code)]
 impl Message {
     /// 创建用户消息
     pub fn user(content: impl Into<String>, model_id: impl Into<String>) -> Self {
@@ -290,12 +251,6 @@ impl HistoryUserMessage {
         Self {
             user_input_message: UserMessage::new(content, model_id),
         }
-    }
-
-    /// 设置用户消息
-    pub fn with_message(mut self, message: UserMessage) -> Self {
-        self.user_input_message = message;
-        self
     }
 }
 
@@ -362,12 +317,6 @@ impl HistoryAssistantMessage {
             assistant_response_message: AssistantMessage::new(content),
         }
     }
-
-    /// 设置助手消息
-    pub fn with_message(mut self, message: AssistantMessage) -> Self {
-        self.assistant_response_message = message;
-        self
-    }
 }
 
 /// 助手消息（历史记录中使用）
@@ -395,18 +344,6 @@ impl AssistantMessage {
         self.tool_uses = Some(tool_uses);
         self
     }
-
-    /// 添加工具使用
-    pub fn add_tool_use(&mut self, tool_use: ToolUseEntry) {
-        self.tool_uses
-            .get_or_insert_with(Vec::new)
-            .push(tool_use);
-    }
-
-    /// 判断是否有工具调用
-    pub fn has_tool_uses(&self) -> bool {
-        self.tool_uses.as_ref().map_or(false, |v| !v.is_empty())
-    }
 }
 
 #[cfg(test)]
@@ -433,13 +370,6 @@ mod tests {
         assert_eq!(msg.origin, Some("AI_EDITOR".to_string()));
     }
 
-    #[test]
-    fn test_kiro_image() {
-        let image = KiroImage::jpeg("base64data...");
-
-        assert_eq!(image.format, "jpeg");
-        assert_eq!(image.source.bytes, "base64data...");
-    }
 
     #[test]
     fn test_message_enum() {
@@ -462,18 +392,6 @@ mod tests {
         let json = serde_json::to_string(&history).unwrap();
         assert!(json.contains("userInputMessage"));
         assert!(json.contains("assistantResponseMessage"));
-    }
-
-    #[test]
-    fn test_assistant_message_with_tools() {
-        let mut msg = AssistantMessage::new("Let me read that file.");
-        msg.add_tool_use(
-            ToolUseEntry::new("tool-123", "read_file")
-                .with_input(serde_json::json!({"path": "/test.txt"})),
-        );
-
-        assert!(msg.has_tool_uses());
-        assert_eq!(msg.tool_uses.as_ref().unwrap().len(), 1);
     }
 
     #[test]
