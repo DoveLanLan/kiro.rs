@@ -1,3 +1,4 @@
+mod admin;
 mod anthropic;
 mod http_client;
 mod kiro;
@@ -93,17 +94,41 @@ async fn main() {
         proxy: proxy_config,
     });
 
-    // 构建路由（从第一个凭据获取 profile_arn）
-    let app = anthropic::create_router_with_provider(&api_key, Some(kiro_provider), first_credentials.profile_arn.clone());
+    // 构建 Anthropic API 路由（从第一个凭据获取 profile_arn）
+    let anthropic_app = anthropic::create_router_with_provider(
+        &api_key,
+        Some(kiro_provider),
+        first_credentials.profile_arn.clone(),
+    );
+
+    // 构建 Admin API 路由（如果配置了 admin_api_key）
+    let app = if let Some(admin_key) = &config.admin_api_key {
+        let admin_service = admin::AdminService::new(token_manager.clone());
+        let admin_state = admin::AdminState::new(admin_key, admin_service);
+        let admin_app = admin::create_admin_router(admin_state);
+
+        tracing::info!("Admin API 已启用");
+        anthropic_app.nest("/api/admin", admin_app)
+    } else {
+        anthropic_app
+    };
 
     // 启动服务器
     let addr = format!("{}:{}", config.host, config.port);
     tracing::info!("启动 Anthropic API 端点: {}", addr);
-    tracing::info!("API Key: {}***", &api_key[..(api_key.len()/2)]);
+    tracing::info!("API Key: {}***", &api_key[..(api_key.len() / 2)]);
     tracing::info!("可用 API:");
     tracing::info!("  GET  /v1/models");
     tracing::info!("  POST /v1/messages");
     tracing::info!("  POST /v1/messages/count_tokens");
+    if config.admin_api_key.is_some() {
+        tracing::info!("Admin API:");
+        tracing::info!("  GET  /api/admin/credentials");
+        tracing::info!("  POST /api/admin/credentials/:index/disabled");
+        tracing::info!("  POST /api/admin/credentials/:index/priority");
+        tracing::info!("  POST /api/admin/credentials/:index/reset");
+        tracing::info!("  GET  /api/admin/credentials/:index/balance");
+    }
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

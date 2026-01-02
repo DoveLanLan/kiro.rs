@@ -54,6 +54,10 @@ pub struct Config {
     /// 代理认证密码（可选）
     #[serde(default)]
     pub proxy_password: Option<String>,
+
+    /// Admin API 密钥（可选，启用 Admin API 功能）
+    #[serde(default)]
+    pub admin_api_key: Option<String>,
 }
 
 fn default_host() -> String {
@@ -102,6 +106,7 @@ impl Default for Config {
             proxy_url: None,
             proxy_username: None,
             proxy_password: None,
+            admin_api_key: None,
         }
     }
 }

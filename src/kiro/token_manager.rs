@@ -6,6 +6,7 @@
 use anyhow::bail;
 use chrono::{DateTime, Duration, Utc};
 use parking_lot::Mutex;
+use serde::Serialize;
 use tokio::sync::Mutex as TokioMutex;
 
 use std::path::PathBuf;
@@ -372,6 +373,44 @@ struct CredentialEntry {
     failure_count: u32,
     /// 是否已禁用
     disabled: bool,
+}
+
+// ============================================================================
+// Admin API 公开结构
+// ============================================================================
+
+/// 凭据条目快照（用于 Admin API 读取）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialEntrySnapshot {
+    /// 凭据索引
+    pub index: usize,
+    /// 优先级
+    pub priority: u32,
+    /// 是否被禁用
+    pub disabled: bool,
+    /// 连续失败次数
+    pub failure_count: u32,
+    /// 认证方式
+    pub auth_method: Option<String>,
+    /// 是否有 Profile ARN
+    pub has_profile_arn: bool,
+    /// Token 过期时间
+    pub expires_at: Option<String>,
+}
+
+/// 凭据管理器状态快照
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagerSnapshot {
+    /// 凭据条目列表
+    pub entries: Vec<CredentialEntrySnapshot>,
+    /// 当前活跃凭据索引
+    pub current_index: usize,
+    /// 总凭据数量
+    pub total: usize,
+    /// 可用凭据数量
+    pub available: usize,
 }
 
 /// 多凭据 Token 管理器
@@ -743,6 +782,133 @@ impl MultiTokenManager {
     pub async fn get_usage_limits(&self) -> anyhow::Result<UsageLimitsResponse> {
         let ctx = self.acquire_context().await?;
         get_usage_limits(&ctx.credentials, &self.config, &ctx.token, self.proxy.as_ref()).await
+    }
+
+    // ========================================================================
+    // Admin API 方法
+    // ========================================================================
+
+    /// 获取管理器状态快照（用于 Admin API）
+    pub fn snapshot(&self) -> ManagerSnapshot {
+        let entries = self.entries.lock();
+        let current_index = *self.current_index.lock();
+        let available = entries.iter().filter(|e| !e.disabled).count();
+
+        ManagerSnapshot {
+            entries: entries
+                .iter()
+                .enumerate()
+                .map(|(index, e)| CredentialEntrySnapshot {
+                    index,
+                    priority: e.credentials.priority,
+                    disabled: e.disabled,
+                    failure_count: e.failure_count,
+                    auth_method: e.credentials.auth_method.clone(),
+                    has_profile_arn: e.credentials.profile_arn.is_some(),
+                    expires_at: e.credentials.expires_at.clone(),
+                })
+                .collect(),
+            current_index,
+            total: entries.len(),
+            available,
+        }
+    }
+
+    /// 设置凭据禁用状态（Admin API）
+    pub fn set_disabled(&self, index: usize, disabled: bool) -> anyhow::Result<()> {
+        {
+            let mut entries = self.entries.lock();
+            if index >= entries.len() {
+                anyhow::bail!("凭据索引超出范围: {} (总数: {})", index, entries.len());
+            }
+            entries[index].disabled = disabled;
+            if !disabled {
+                // 启用时重置失败计数
+                entries[index].failure_count = 0;
+            }
+        }
+        // 持久化更改
+        self.persist_credentials();
+        Ok(())
+    }
+
+    /// 设置凭据优先级（Admin API）
+    pub fn set_priority(&self, index: usize, priority: u32) -> anyhow::Result<()> {
+        {
+            let mut entries = self.entries.lock();
+            if index >= entries.len() {
+                anyhow::bail!("凭据索引超出范围: {} (总数: {})", index, entries.len());
+            }
+            entries[index].credentials.priority = priority;
+        }
+        // 持久化更改
+        self.persist_credentials();
+        Ok(())
+    }
+
+    /// 重置凭据失败计数并重新启用（Admin API）
+    pub fn reset_and_enable(&self, index: usize) -> anyhow::Result<()> {
+        {
+            let mut entries = self.entries.lock();
+            if index >= entries.len() {
+                anyhow::bail!("凭据索引超出范围: {} (总数: {})", index, entries.len());
+            }
+            entries[index].failure_count = 0;
+            entries[index].disabled = false;
+        }
+        // 持久化更改
+        self.persist_credentials();
+        Ok(())
+    }
+
+    /// 获取指定凭据的使用额度（Admin API）
+    pub async fn get_usage_limits_for(&self, index: usize) -> anyhow::Result<UsageLimitsResponse> {
+        let credentials = {
+            let entries = self.entries.lock();
+            if index >= entries.len() {
+                anyhow::bail!("凭据索引超出范围: {} (总数: {})", index, entries.len());
+            }
+            entries[index].credentials.clone()
+        };
+
+        // 检查是否需要刷新 token
+        let needs_refresh = is_token_expired(&credentials) || is_token_expiring_soon(&credentials);
+
+        let token = if needs_refresh {
+            let _guard = self.refresh_lock.lock().await;
+            let current_creds = {
+                let entries = self.entries.lock();
+                entries[index].credentials.clone()
+            };
+
+            if is_token_expired(&current_creds) || is_token_expiring_soon(&current_creds) {
+                let new_creds =
+                    refresh_token(&current_creds, &self.config, self.proxy.as_ref()).await?;
+                {
+                    let mut entries = self.entries.lock();
+                    entries[index].credentials = new_creds.clone();
+                }
+                self.persist_credentials();
+                new_creds
+                    .access_token
+                    .ok_or_else(|| anyhow::anyhow!("刷新后无 access_token"))?
+            } else {
+                current_creds
+                    .access_token
+                    .ok_or_else(|| anyhow::anyhow!("凭据无 access_token"))?
+            }
+        } else {
+            credentials
+                .access_token
+                .ok_or_else(|| anyhow::anyhow!("凭据无 access_token"))?
+        };
+
+        let credentials = {
+            let entries = self.entries.lock();
+            entries[index].credentials.clone()
+        };
+
+        get_usage_limits(&credentials, &self.config, &token, self.proxy.as_ref()).await
     }
 }
 
