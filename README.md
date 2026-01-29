@@ -172,6 +172,21 @@ cargo build --release
 ./target/release/kiro-rs -c /path/to/config.json --credentials /path/to/credentials.json
 ```
 
+## Docker Compose 启动
+
+1) 准备配置文件（不要提交真实凭据到仓库）：
+
+- `config/config.json`（参考 `config.example.json`）
+- `config/credentials.json`（参考 `credentials.example*.json`）
+
+2) 启动：
+
+```bash
+docker compose up --build
+```
+
+`docker-compose.yml` 默认会把 `${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}/kiro-auth-token.json` 绑定到容器内的 `/app/config/credentials.json`，因此你不一定需要在项目里准备 `config/credentials.json`。如果你更希望使用项目内凭据文件，可按 `docker-compose.yml` 里的注释切换为 `./config/credentials.json`。
+
 ### 5. 使用 API
 
 ```bash

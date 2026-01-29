@@ -1,0 +1,13 @@
+services:
+  kiro:
+    build: .
+    ports:
+      - "8990:8990"
+    volumes:
+      - ./config/config.json:/app/config/config.json:ro
+      - ${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}/kiro-auth-token.json:/app/config/credentials.json:ro
+      # 或者使用项目内的凭据文件（参考 credentials.example*.json）：
+      # - ./config/credentials.json:/app/config/credentials.json:ro
+    environment:
+      RUST_LOG: info
+    restart: unless-stopped

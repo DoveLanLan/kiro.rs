@@ -1,8 +1,9 @@
 /target
 /CLAUDE.md
-/AGENTS.md
 /config.json
 /credentials.json
+/config/config.json
+/config/credentials.json
 /.idea
 /test.json
 /Cargo.lock
