@@ -179,6 +179,16 @@ cargo build --release
 - `config/config.json`（参考 `config.example.json`）
 - `config/credentials.json`（参考 `credentials.example*.json`）
 
+> 排查：如果你在 `docker compose logs -f` 里看到 `加载配置失败: Is a directory (os error 21)`（2026-01-30 等日期的日志也一样），通常是因为宿主机的 `config/config.json` 不存在时，Docker bind mount 会自动创建一个同名目录，导致容器内 `/app/config/config.json` 变成目录而不是文件。修复：
+> ```bash
+> rm -rf config/config.json
+> cp config.example.json config/config.json
+> ```
+>
+> 另外：如果看到 `error mounting ... to .../credentials.json: ... read-only file system`，通常是因为你把 `./config` 以只读方式挂载到了 `/app/config:ro`，同时又把单个文件挂载到 `/app/config/credentials.json`。Docker 需要先在 `/app/config` 下创建挂载点文件，但只读目录无法创建。修复方式二选一：
+> - 把 `./config:/app/config:ro` 改为 `./config:/app/config`（推荐，compose 默认已这样写）。
+> - 或者在宿主机先创建挂载点文件：`touch config/credentials.json`，再使用只读目录挂载。
+
 2) 启动：
 
 ```bash

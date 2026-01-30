@@ -4,7 +4,10 @@ services:
     ports:
       - "8990:8990"
     volumes:
-      - ./config/config.json:/app/config/config.json:ro
+      # 挂载整个 config 目录。注意：如果设为只读（:ro），再挂载单个文件到 /app/config/xxx 时，
+      # Docker 可能需要先在 /app/config 内创建挂载点文件，从而触发 "read-only file system"。
+      # 因此默认使用可写目录挂载；如需只读，请确保宿主机已存在 config/credentials.json 等挂载点文件。
+      - ./config:/app/config
       - ${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}/kiro-auth-token.json:/app/config/credentials.json:ro
       # IdC 刷新需要读取 clientIdHash 对应的注册文件（同目录下的 <clientIdHash>.json），因此建议挂载整个 cache 目录
       - ${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}:/root/.aws/sso/cache:ro

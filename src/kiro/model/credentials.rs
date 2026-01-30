@@ -106,6 +106,12 @@ impl CredentialsConfig {
         if !path.exists() {
             return Ok(CredentialsConfig::Multiple(vec![]));
         }
+        if path.is_dir() {
+            anyhow::bail!(
+                "凭据路径是目录: {}。请确保该路径指向 JSON 文件（例如 credentials.json），而不是目录。",
+                path.display()
+            );
+        }
 
         let content = fs::read_to_string(path)?;
 
@@ -495,5 +501,19 @@ mod tests {
         assert_eq!(parsed.priority, original.priority);
         assert_eq!(parsed.region, original.region);
         assert_eq!(parsed.machine_id, original.machine_id);
+    }
+
+    #[test]
+    fn test_credentials_config_load_path_is_directory() {
+        let dir = std::env::temp_dir().join(format!(
+            "kiro-rs-credentials-dir-{}",
+            fastrand::u64(..)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let err = CredentialsConfig::load(&dir).unwrap_err();
+        assert!(err.to_string().contains("凭据路径是目录"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

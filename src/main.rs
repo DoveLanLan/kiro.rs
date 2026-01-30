@@ -34,7 +34,7 @@ async fn main() {
         .config
         .unwrap_or_else(|| Config::default_config_path().to_string());
     let config = Config::load(&config_path).unwrap_or_else(|e| {
-        tracing::error!("加载配置失败: {}", e);
+        tracing::error!("加载配置失败 ({}): {}", config_path, e);
         std::process::exit(1);
     });
 
@@ -43,7 +43,7 @@ async fn main() {
         .credentials
         .unwrap_or_else(|| KiroCredentials::default_credentials_path().to_string());
     let credentials_config = CredentialsConfig::load(&credentials_path).unwrap_or_else(|e| {
-        tracing::error!("加载凭证失败: {}", e);
+        tracing::error!("加载凭证失败 ({}): {}", credentials_path, e);
         std::process::exit(1);
     });
 

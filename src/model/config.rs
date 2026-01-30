@@ -145,9 +145,32 @@ impl Config {
             // 配置文件不存在，返回默认配置
             return Ok(Self::default());
         }
+        if path.is_dir() {
+            anyhow::bail!(
+                "配置路径是目录: {}。如果你在 Docker/Compose 里绑定了 ./config/config.json 但宿主机文件不存在，Docker 可能会创建同名目录；请删除该目录并创建配置文件（参考 config.example.json）。",
+                path.display()
+            );
+        }
 
         let content = fs::read_to_string(path)?;
         let config: Config = serde_json::from_str(&content)?;
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_config_path_is_directory() {
+        let dir = std::env::temp_dir().join(format!("kiro-rs-config-dir-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let err = Config::load(&dir).unwrap_err();
+        assert!(err.to_string().contains("配置路径是目录"));
+
+        // 尽量清理，避免污染 /tmp
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
