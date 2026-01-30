@@ -20,6 +20,84 @@ use crate::kiro::model::token_refresh::{
 use crate::kiro::model::usage_limits::UsageLimitsResponse;
 use crate::model::config::Config;
 
+fn aws_sso_cache_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("AWS_SSO_CACHE_DIR") {
+        let dir = dir.trim();
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join(".aws/sso/cache");
+    }
+
+    PathBuf::from(".aws/sso/cache")
+}
+
+fn resolve_idc_client_from_aws_sso_cache_dir(
+    credentials: &KiroCredentials,
+    cache_dir: &std::path::Path,
+) -> anyhow::Result<(String, String)> {
+    // 如果用户已经显式配置了 clientId/clientSecret，直接使用
+    if let (Some(client_id), Some(client_secret)) =
+        (credentials.client_id.as_ref(), credentials.client_secret.as_ref())
+    {
+        return Ok((client_id.to_string(), client_secret.to_string()));
+    }
+
+    let hash = credentials
+        .client_id_hash
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("IdC 刷新需要 clientId/clientSecret（或 clientIdHash + AWS SSO cache 注册文件）"))?;
+
+    let registration_path = cache_dir.join(format!("{}.json", hash));
+    let content = std::fs::read_to_string(&registration_path).map_err(|e| {
+        anyhow::anyhow!(
+            "无法读取 AWS SSO cache 注册文件 {:?}: {}。请确保容器内可访问该目录（建议将主机的 ~/.aws/sso/cache 挂载到 /root/.aws/sso/cache）",
+            registration_path,
+            e
+        )
+    })?;
+
+    let v: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        anyhow::anyhow!(
+            "解析 AWS SSO cache 注册文件 {:?} 失败: {}",
+            registration_path,
+            e
+        )
+    })?;
+
+    let resolved_client_id = v
+        .get("clientId")
+        .and_then(|x| x.as_str())
+        .or_else(|| v.get("client_id").and_then(|x| x.as_str()));
+    let resolved_client_secret = v
+        .get("clientSecret")
+        .and_then(|x| x.as_str())
+        .or_else(|| v.get("client_secret").and_then(|x| x.as_str()));
+
+    let client_id = credentials
+        .client_id
+        .as_deref()
+        .or(resolved_client_id)
+        .ok_or_else(|| anyhow::anyhow!("IdC 刷新需要 clientId（未在 credentials.json 中配置，且未能从 AWS SSO cache 注册文件解析）"))?;
+    let client_secret = credentials
+        .client_secret
+        .as_deref()
+        .or(resolved_client_secret)
+        .ok_or_else(|| anyhow::anyhow!("IdC 刷新需要 clientSecret（未在 credentials.json 中配置，且未能从 AWS SSO cache 注册文件解析）"))?;
+
+    Ok((client_id.to_string(), client_secret.to_string()))
+}
+
+fn resolve_idc_client_from_aws_sso_cache(
+    credentials: &KiroCredentials,
+) -> anyhow::Result<(String, String)> {
+    let cache_dir = aws_sso_cache_dir();
+    resolve_idc_client_from_aws_sso_cache_dir(credentials, &cache_dir)
+}
+
 /// Token 管理器
 ///
 /// 负责管理凭据和 Token 的自动刷新
@@ -235,14 +313,7 @@ async fn refresh_idc_token(
     tracing::info!("正在刷新 IdC Token...");
 
     let refresh_token = credentials.refresh_token.as_ref().unwrap();
-    let client_id = credentials
-        .client_id
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("IdC 刷新需要 clientId"))?;
-    let client_secret = credentials
-        .client_secret
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("IdC 刷新需要 clientSecret"))?;
+    let (client_id, client_secret) = resolve_idc_client_from_aws_sso_cache(credentials)?;
 
     // 优先使用凭据级 region，未配置时回退到 config.region
     let region = credentials.region.as_ref().unwrap_or(&config.region);
@@ -250,8 +321,8 @@ async fn refresh_idc_token(
 
     let client = build_client(proxy, 60, config.tls_backend)?;
     let body = IdcRefreshRequest {
-        client_id: client_id.to_string(),
-        client_secret: client_secret.to_string(),
+        client_id,
+        client_secret,
         refresh_token: refresh_token.to_string(),
         grant_type: "refresh_token".to_string(),
     };
@@ -1283,6 +1354,72 @@ impl MultiTokenManager {
 
         tracing::info!("已删除凭据 #{}", id);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod idc_client_resolve_tests {
+    use super::*;
+
+    fn make_temp_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kiro-rs-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn resolve_idc_client_prefers_explicit_fields() {
+        let creds = KiroCredentials {
+            client_id: Some("explicit-client-id".to_string()),
+            client_secret: Some("explicit-client-secret".to_string()),
+            client_id_hash: Some("ignored".to_string()),
+            ..Default::default()
+        };
+
+        let dir = make_temp_dir();
+        let resolved = resolve_idc_client_from_aws_sso_cache_dir(&creds, &dir).unwrap();
+        assert_eq!(resolved.0, "explicit-client-id");
+        assert_eq!(resolved.1, "explicit-client-secret");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_idc_client_from_client_id_hash_file() {
+        let dir = make_temp_dir();
+        let hash = "e87895ae36d9539303a0bcd27feb465a60aeb433";
+        let registration_path = dir.join(format!("{}.json", hash));
+        std::fs::write(
+            &registration_path,
+            r#"{"clientId":"cid","clientSecret":"csec"}"#,
+        )
+        .expect("write registration file");
+
+        let creds = KiroCredentials {
+            auth_method: Some("IdC".to_string()),
+            client_id_hash: Some(hash.to_string()),
+            ..Default::default()
+        };
+
+        let resolved = resolve_idc_client_from_aws_sso_cache_dir(&creds, &dir).unwrap();
+        assert_eq!(resolved.0, "cid");
+        assert_eq!(resolved.1, "csec");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_idc_client_errors_without_hash_or_explicit_fields() {
+        let dir = make_temp_dir();
+        let creds = KiroCredentials {
+            auth_method: Some("idc".to_string()),
+            ..Default::default()
+        };
+
+        let err = resolve_idc_client_from_aws_sso_cache_dir(&creds, &dir)
+            .err()
+            .expect("expected error");
+        let msg = err.to_string();
+        assert!(msg.contains("clientIdHash") || msg.contains("clientId/clientSecret"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

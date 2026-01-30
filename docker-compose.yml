@@ -6,6 +6,8 @@ services:
     volumes:
       - ./config/config.json:/app/config/config.json:ro
       - ${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}/kiro-auth-token.json:/app/config/credentials.json:ro
+      # IdC 刷新需要读取 clientIdHash 对应的注册文件（同目录下的 <clientIdHash>.json），因此建议挂载整个 cache 目录
+      - ${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}:/root/.aws/sso/cache:ro
       # 或者使用项目内的凭据文件（参考 credentials.example*.json）：
       # - ./config/credentials.json:/app/config/credentials.json:ro
     environment:

@@ -187,6 +187,8 @@ docker compose up --build
 
 `docker-compose.yml` 默认会把 `${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}/kiro-auth-token.json` 绑定到容器内的 `/app/config/credentials.json`，因此你不一定需要在项目里准备 `config/credentials.json`。如果你更希望使用项目内凭据文件，可按 `docker-compose.yml` 里的注释切换为 `./config/credentials.json`。
 
+> 如果你使用的是 **IdC（组织账号）** 登录，`kiro-auth-token.json` 往往只包含 `clientIdHash`，实际刷新所需的 `clientId/clientSecret` 位于同目录下的 `<clientIdHash>.json`。因此 `docker-compose.yml` 也会把整个 `${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}` 目录挂载到容器内的 `/root/.aws/sso/cache` 以便自动解析。
+
 ### 5. 使用 API
 
 ```bash

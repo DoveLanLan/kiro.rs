@@ -127,6 +127,7 @@ impl AdminService {
             auth_method: Some(req.auth_method),
             client_id: req.client_id,
             client_secret: req.client_secret,
+            client_id_hash: None,
             priority: req.priority,
             region: req.region,
             machine_id: req.machine_id,

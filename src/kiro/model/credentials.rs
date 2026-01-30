@@ -43,6 +43,13 @@ pub struct KiroCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
 
+    /// AWS SSO cache 中的 OIDC Client 注册文件哈希（通常来自 `~/.aws/sso/cache/kiro-auth-token.json`）
+    ///
+    /// 当使用 AWS SSO cache 的 token 文件作为凭据时，`clientId/clientSecret` 可能不在同一文件中，
+    /// 而是需要通过该哈希去读取同名的注册文件（例如 `~/.aws/sso/cache/<clientIdHash>.json`）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id_hash: Option<String>,
+
     /// 凭据优先级（数字越小优先级越高，默认为 0）
     #[serde(default)]
     #[serde(skip_serializing_if = "is_zero")]
@@ -234,6 +241,7 @@ mod tests {
             auth_method: Some("social".to_string()),
             client_id: None,
             client_secret: None,
+            client_id_hash: None,
             priority: 0,
             region: None,
             machine_id: None,
@@ -344,6 +352,7 @@ mod tests {
             auth_method: None,
             client_id: None,
             client_secret: None,
+            client_id_hash: None,
             priority: 0,
             region: Some("eu-west-1".to_string()),
             machine_id: None,
@@ -366,6 +375,7 @@ mod tests {
             auth_method: None,
             client_id: None,
             client_secret: None,
+            client_id_hash: None,
             priority: 0,
             region: None,
             machine_id: None,
@@ -470,6 +480,7 @@ mod tests {
             auth_method: Some("social".to_string()),
             client_id: None,
             client_secret: None,
+            client_id_hash: None,
             priority: 3,
             region: Some("us-west-2".to_string()),
             machine_id: Some("c".repeat(64)),
