@@ -12,4 +12,5 @@ services:
       - ${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}:/root/.aws/sso/cache:ro
     environment:
       RUST_LOG: info
+      KIRO_BOOTSTRAP_CREDENTIALS_FROM_AWS_SSO_CACHE: "1"
     restart: unless-stopped

@@ -7,6 +7,8 @@ mod kiro;
 mod model;
 pub mod token;
 
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use clap::Parser;
@@ -15,6 +17,88 @@ use kiro::provider::KiroProvider;
 use kiro::token_manager::MultiTokenManager;
 use model::arg::Args;
 use model::config::Config;
+
+fn env_truthy(key: &str) -> bool {
+    match std::env::var(key) {
+        Ok(v) => matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "y" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
+fn maybe_bootstrap_credentials_from_aws_sso_cache(
+    credentials_path: &str,
+) -> anyhow::Result<bool> {
+    // 默认不自动生成，避免在本地运行时“意外写文件”；Docker Compose 推荐显式开启
+    if !env_truthy("KIRO_BOOTSTRAP_CREDENTIALS_FROM_AWS_SSO_CACHE") {
+        return Ok(false);
+    }
+
+    let out_path = Path::new(credentials_path);
+    if out_path.exists() {
+        if out_path.is_dir() {
+            anyhow::bail!(
+                "凭证路径是目录而不是文件: {}（请删除该目录并创建 credentials.json 文件）",
+                credentials_path
+            );
+        }
+
+        let content = fs::read_to_string(out_path).unwrap_or_default();
+        if !content.trim().is_empty() {
+            return Ok(false);
+        }
+    }
+
+    let token_path = kiro::token_manager::aws_sso_cache_dir().join("kiro-auth-token.json");
+    if !token_path.exists() {
+        tracing::warn!(
+            "未找到 AWS SSO token 文件 {:?}，跳过凭证自动初始化",
+            token_path
+        );
+        return Ok(false);
+    }
+
+    let content = fs::read_to_string(&token_path)?;
+    let v: serde_json::Value = serde_json::from_str(&content)?;
+
+    let refresh_token = v
+        .get("refreshToken")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| anyhow::anyhow!("AWS SSO token 文件缺少 refreshToken: {:?}", token_path))?;
+
+    let mut cred = serde_json::json!({
+        "priority": 0,
+        "authMethod": "idc",
+        "refreshToken": refresh_token,
+        // 不写 accessToken，并强制过期，让服务启动后立即 refresh 并回写最新 token
+        "expiresAt": "1970-01-01T00:00:00Z"
+    });
+
+    if let Some(hash) = v.get("clientIdHash").and_then(|x| x.as_str()) {
+        cred["clientIdHash"] = serde_json::Value::String(hash.to_string());
+    }
+    if let Some(region) = v.get("region").and_then(|x| x.as_str()) {
+        cred["region"] = serde_json::Value::String(region.to_string());
+    }
+
+    let list = vec![cred];
+    let json = serde_json::to_string_pretty(&list)?;
+
+    if let Some(parent) = out_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    fs::write(out_path, format!("{}\n", json))?;
+
+    tracing::info!(
+        "已从 AWS SSO cache 初始化凭证文件: {}（不会写入 accessToken）",
+        credentials_path
+    );
+    Ok(true)
+}
 
 #[tokio::main]
 async fn main() {
@@ -42,6 +126,11 @@ async fn main() {
     let credentials_path = args
         .credentials
         .unwrap_or_else(|| KiroCredentials::default_credentials_path().to_string());
+
+    if let Err(e) = maybe_bootstrap_credentials_from_aws_sso_cache(&credentials_path) {
+        tracing::warn!("凭证自动初始化失败（不影响继续启动）: {}", e);
+    }
+
     let credentials_config = CredentialsConfig::load(&credentials_path).unwrap_or_else(|e| {
         tracing::error!("加载凭证失败 ({}): {}", credentials_path, e);
         std::process::exit(1);

@@ -197,7 +197,9 @@ docker compose up --build
 
 推荐方式：把 `config/credentials.json` 作为**可写**的运行时文件（服务会自动回写最新的 token，避免因 refresh token 轮换导致 `invalid_grant`）。
 
-用 AWS SSO cache 里的 `kiro-auth-token.json` 初始化一次（不会写入 accessToken；会强制启动后立即 refresh 并回写）：
+`docker-compose.yml` 默认开启了 `KIRO_BOOTSTRAP_CREDENTIALS_FROM_AWS_SSO_CACHE=1`：当 `config/credentials.json` 不存在或为空时，会从 AWS SSO cache 的 `kiro-auth-token.json` 自动初始化一次（不会写入 accessToken；会强制启动后立即 refresh 并回写）。
+
+如果你想在启动前手动生成，也可以执行：
 
 ```bash
 python3 tools/init-credentials-from-aws-sso-cache.py

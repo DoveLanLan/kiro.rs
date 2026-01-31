@@ -20,7 +20,7 @@ use crate::kiro::model::token_refresh::{
 use crate::kiro::model::usage_limits::UsageLimitsResponse;
 use crate::model::config::Config;
 
-fn aws_sso_cache_dir() -> PathBuf {
+pub(crate) fn aws_sso_cache_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("AWS_SSO_CACHE_DIR") {
         let dir = dir.trim();
         if !dir.is_empty() {
