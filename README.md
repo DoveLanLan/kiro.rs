@@ -177,7 +177,7 @@ cargo build --release
 1) 准备配置文件（不要提交真实凭据到仓库）：
 
 - `config/config.json`（参考 `config.example.json`）
-- `config/credentials.json`（参考 `credentials.example*.json`）
+- `config/credentials.json`（推荐：用 AWS SSO cache 初始化一次；或参考 `credentials.example*.json` 手写）
 
 > 排查：如果你在 `docker compose logs -f` 里看到 `加载配置失败: Is a directory (os error 21)`（2026-01-30 等日期的日志也一样），通常是因为宿主机的 `config/config.json` 不存在时，Docker bind mount 会自动创建一个同名目录，导致容器内 `/app/config/config.json` 变成目录而不是文件。修复：
 > ```bash
@@ -195,7 +195,13 @@ cargo build --release
 docker compose up --build
 ```
 
-`docker-compose.yml` 默认会把 `${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}/kiro-auth-token.json` 绑定到容器内的 `/app/config/credentials.json`，因此你不一定需要在项目里准备 `config/credentials.json`。如果你更希望使用项目内凭据文件，可按 `docker-compose.yml` 里的注释切换为 `./config/credentials.json`。
+推荐方式：把 `config/credentials.json` 作为**可写**的运行时文件（服务会自动回写最新的 token，避免因 refresh token 轮换导致 `invalid_grant`）。
+
+用 AWS SSO cache 里的 `kiro-auth-token.json` 初始化一次（不会写入 accessToken；会强制启动后立即 refresh 并回写）：
+
+```bash
+python3 tools/init-credentials-from-aws-sso-cache.py
+```
 
 > 如果你使用的是 **IdC（组织账号）** 登录，`kiro-auth-token.json` 往往只包含 `clientIdHash`，实际刷新所需的 `clientId/clientSecret` 位于同目录下的 `<clientIdHash>.json`。因此 `docker-compose.yml` 也会把整个 `${AWS_SSO_CACHE_DIR:-${HOME}/.aws/sso/cache}` 目录挂载到容器内的 `/root/.aws/sso/cache` 以便自动解析。
 
