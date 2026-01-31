@@ -1,6 +1,11 @@
 services:
   kiro:
-    build: .
+    build:
+      context: .
+      args:
+        # 可选：国内网络可开启 rsproxy 镜像加速（sparse 协议）
+        # 示例：CARGO_REGISTRY_MIRROR=sparse+https://rsproxy.cn/crates.io-index/
+        CARGO_REGISTRY_MIRROR: ${CARGO_REGISTRY_MIRROR:-}
     ports:
       - "8990:8990"
     volumes:

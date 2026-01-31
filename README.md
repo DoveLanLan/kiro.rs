@@ -195,6 +195,18 @@ cargo build --release
 docker compose up --build
 ```
 
+### Docker 构建很慢（Updating crates.io index）
+
+如果你在 `docker compose up -d --build` / `docker compose build` 时经常卡在 `Updating crates.io index`：
+
+- 本项目 Dockerfile 已启用 BuildKit 的 Cargo 缓存（registry/git/target），后续改代码再 `--build` 会快很多。
+- 国内网络建议开启 rsproxy 镜像（sparse），显著加速 index/依赖下载：
+
+```bash
+export CARGO_REGISTRY_MIRROR="sparse+https://rsproxy.cn/crates.io-index/"
+docker compose build
+```
+
 推荐方式：把 `config/credentials.json` 作为**可写**的运行时文件（服务会自动回写最新的 token，避免因 refresh token 轮换导致 `invalid_grant`）。
 
 `docker-compose.yml` 默认开启了 `KIRO_BOOTSTRAP_CREDENTIALS_FROM_AWS_SSO_CACHE=1`：当 `config/credentials.json` 不存在或为空时，会从 AWS SSO cache 的 `kiro-auth-token.json` 自动初始化一次（不会写入 accessToken；会强制启动后立即 refresh 并回写）。
