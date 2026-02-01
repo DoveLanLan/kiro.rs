@@ -39,14 +39,15 @@ RUN if [ -n "${CARGO_REGISTRY_MIRROR}" ]; then \
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    if [ -f Cargo.lock ]; then cargo build --release --locked; else cargo build --release; fi
+    if [ -f Cargo.lock ]; then cargo build --release --locked; else cargo build --release; fi && \
+    install -m 0755 /app/target/release/kiro-rs /app/kiro-rs
 
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
-COPY --from=builder /app/target/release/kiro-rs /app/kiro-rs
+COPY --from=builder /app/kiro-rs /app/kiro-rs
 
 VOLUME ["/app/config"]
 
