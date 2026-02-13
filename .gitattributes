@@ -1,0 +1,2 @@
+# Keep local versions on merge
+docker-compose.yml merge=ours
