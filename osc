@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./osc <command> [options]
+
+Commands:
+  codex   [-p "<extra prompt>"] [-- <codex args...>]
+          Launch Codex with osc workflow context.
+  status  Show current repo context (.osc/scripts/get-context.sh).
+  task    [args...]  Manage tasks (.osc/scripts/task.sh).
+          Subcommands: list, create, select, clear, archive, status, done, progress
+  session [args...]  Add a session (.osc/scripts/add-session.sh).
+
+Examples:
+  ./osc codex
+  ./osc codex -p "实现一个新的登录页"
+  ./osc codex -p "fix lint errors" -- --model o3 --sandbox workspace-write
+  ./osc status
+  ./osc task list
+  ./osc task create "Add login page"
+  ./osc task status
+  ./osc task progress "Completed API integration"
+  ./osc task done
+  ./osc session
+EOF
+}
+
+die() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+repo_root() {
+  if root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    echo "$root"
+    return 0
+  fi
+  # Fallback: directory that contains this script.
+  cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1
+  pwd
+}
+
+build_codex_prompt() {
+  local root="$1"
+  local extra="${2:-}"
+
+  local workflow_path="$root/.osc/workflow.md"
+  local context_cmd="$root/.osc/scripts/get-context.sh"
+
+  local workflow=""
+  if [[ -f "$workflow_path" ]]; then
+    workflow="$(cat "$workflow_path")"
+  fi
+
+  local context=""
+  if [[ -x "$context_cmd" ]]; then
+    context="$("$context_cmd" || true)"
+  elif [[ -f "$context_cmd" ]]; then
+    context="$(bash "$context_cmd" || true)"
+  fi
+
+  cat <<EOF
+You are working in this repository. Follow the open-spec-code (osc) workflow.
+
+Critical rule: do not only output results in chat — write the required Markdown artifacts into the repo files.
+
+Required artifact destinations (when applicable):
+- Project spec: .osc/spec/project-spec.md
+- Change package: .osc/changes/<YYYY-MM-DD>-<slug>/
+- Quality gate report: .osc/quality-gate.md
+
+First, read these files:
+- .osc/workflow.md
+- .osc/spec/*/index.md
+
+Current repo context (from .osc/scripts/get-context.sh):
+\`\`\`
+$context
+\`\`\`
+
+Workflow guide (.osc/workflow.md):
+\`\`\`
+$workflow
+\`\`\`
+
+User request:
+$extra
+EOF
+}
+
+main() {
+  if [[ $# -lt 1 ]]; then
+    usage
+    exit 1
+  fi
+
+  local cmd="$1"
+  shift
+
+  case "$cmd" in
+    -h|--help|help)
+      usage
+      exit 0
+      ;;
+    codex)
+      local extra_prompt=""
+      local -a codex_args=()
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          -h|--help)
+            usage
+            exit 0
+            ;;
+          -p|--prompt)
+            shift
+            [[ $# -gt 0 ]] || die "Missing value for --prompt"
+            extra_prompt="$1"
+            shift
+            ;;
+          --)
+            shift
+            codex_args+=("$@")
+            break
+            ;;
+          *)
+            die "Unknown argument for ./osc codex: $1 (use --help)"
+            ;;
+        esac
+      done
+
+      command -v codex >/dev/null 2>&1 || die "codex not found in PATH (install: npm i -g @openai/codex)"
+
+      local root
+      root="$(repo_root)"
+      [[ -d "$root/.osc" ]] || die "Missing .osc/ (run: open-spec-code init -u <name>)"
+
+      local prompt
+      prompt="$(build_codex_prompt "$root" "$extra_prompt")"
+
+      # NOTE: macOS ships bash 3.2 by default. With `set -u`, expanding an empty
+      # array like "${arr[@]}" triggers "unbound variable". So only expand when
+      # the array has elements.
+      if ((${#codex_args[@]})); then
+        exec codex "${codex_args[@]}" "$prompt"
+      else
+        exec codex "$prompt"
+      fi
+      ;;
+    status)
+      local root
+      root="$(repo_root)"
+      [[ -d "$root/.osc" ]] || die "Missing .osc/ (run: open-spec-code init -u <name>)"
+      exec "$root/.osc/scripts/get-context.sh"
+      ;;
+    task)
+      local root
+      root="$(repo_root)"
+      [[ -d "$root/.osc" ]] || die "Missing .osc/ (run: open-spec-code init -u <name>)"
+      exec "$root/.osc/scripts/task.sh" "$@"
+      ;;
+    session)
+      local root
+      root="$(repo_root)"
+      [[ -d "$root/.osc" ]] || die "Missing .osc/ (run: open-spec-code init -u <name>)"
+      exec "$root/.osc/scripts/add-session.sh" "$@"
+      ;;
+    *)
+      die "Unknown subcommand: $cmd (use ./osc --help)"
+      ;;
+  esac
+}
+
+main "$@"
