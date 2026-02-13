@@ -1,6 +1,7 @@
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -27,6 +28,16 @@ pub struct Config {
 
     #[serde(default = "default_region")]
     pub region: String,
+
+    /// Auth Region（用于 Token 刷新），未配置时回退到 region
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_region: Option<String>,
+
+    /// API Region（用于 API 请求），未配置时回退到 region
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_region: Option<String>,
 
     #[serde(default = "default_kiro_version")]
     pub kiro_version: String,
@@ -74,6 +85,14 @@ pub struct Config {
     /// Admin API 密钥（可选，启用 Admin API 功能）
     #[serde(default)]
     pub admin_api_key: Option<String>,
+
+    /// 负载均衡模式（"priority" 或 "balanced"）
+    #[serde(default = "default_load_balancing_mode")]
+    pub load_balancing_mode: String,
+
+    /// 配置文件路径（运行时元数据，不写入 JSON）
+    #[serde(skip)]
+    config_path: Option<PathBuf>,
 }
 
 fn default_host() -> String {
@@ -89,7 +108,7 @@ fn default_region() -> String {
 }
 
 fn default_kiro_version() -> String {
-    "0.8.0".to_string()
+    "0.9.2".to_string()
 }
 
 fn default_system_version() -> String {
@@ -109,12 +128,18 @@ fn default_tls_backend() -> TlsBackend {
     TlsBackend::Rustls
 }
 
+fn default_load_balancing_mode() -> String {
+    "priority".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             host: default_host(),
             port: default_port(),
             region: default_region(),
+            auth_region: None,
+            api_region: None,
             kiro_version: default_kiro_version(),
             machine_id: None,
             api_key: None,
@@ -128,6 +153,8 @@ impl Default for Config {
             proxy_username: None,
             proxy_password: None,
             admin_api_key: None,
+            load_balancing_mode: default_load_balancing_mode(),
+            config_path: None,
         }
     }
 }
@@ -138,12 +165,26 @@ impl Config {
         "config.json"
     }
 
+    /// 获取有效的 Auth Region（用于 Token 刷新）
+    /// 优先使用 auth_region，未配置时回退到 region
+    pub fn effective_auth_region(&self) -> &str {
+        self.auth_region.as_deref().unwrap_or(&self.region)
+    }
+
+    /// 获取有效的 API Region（用于 API 请求）
+    /// 优先使用 api_region，未配置时回退到 region
+    pub fn effective_api_region(&self) -> &str {
+        self.api_region.as_deref().unwrap_or(&self.region)
+    }
+
     /// 从文件加载配置
     pub fn load<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let path = path.as_ref();
         if !path.exists() {
             // 配置文件不存在，返回默认配置
-            return Ok(Self::default());
+            let mut config = Self::default();
+            config.config_path = Some(path.to_path_buf());
+            return Ok(config);
         }
         if path.is_dir() {
             anyhow::bail!(
@@ -153,8 +194,26 @@ impl Config {
         }
 
         let content = fs::read_to_string(path)?;
-        let config: Config = serde_json::from_str(&content)?;
+        let mut config: Config = serde_json::from_str(&content)?;
+        config.config_path = Some(path.to_path_buf());
         Ok(config)
+    }
+
+    /// 获取配置文件路径（如果有）
+    pub fn config_path(&self) -> Option<&Path> {
+        self.config_path.as_deref()
+    }
+
+    /// 将当前配置写回原始配置文件
+    pub fn save(&self) -> anyhow::Result<()> {
+        let path = self
+            .config_path
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("配置文件路径未知，无法保存配置"))?;
+
+        let content = serde_json::to_string_pretty(self).context("序列化配置失败")?;
+        fs::write(path, content).with_context(|| format!("写入配置文件失败: {}", path.display()))?;
+        Ok(())
     }
 }
 

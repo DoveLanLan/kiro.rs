@@ -420,11 +420,10 @@ fn generate_search_summary(query: &str, results: &Option<WebSearchResults>) -> S
         for (i, result) in results.results.iter().enumerate() {
             summary.push_str(&format!("{}. **{}**\n", i + 1, result.title));
             if let Some(ref snippet) = result.snippet {
-                // 截断过长的摘要
-                let truncated = if snippet.len() > 200 {
-                    format!("{}...", &snippet[..200])
-                } else {
-                    snippet.clone()
+                // 截断过长的摘要（安全处理 UTF-8 多字节字符）
+                let truncated = match snippet.char_indices().nth(200) {
+                    Some((idx, _)) => format!("{}...", &snippet[..idx]),
+                    None => snippet.clone(),
                 };
                 summary.push_str(&format!("   {}\n", truncated));
             }
@@ -541,6 +540,7 @@ mod tests {
             }]),
             tool_choice: None,
             thinking: None,
+            output_config: None,
             metadata: None,
         };
 
@@ -578,6 +578,7 @@ mod tests {
             ]),
             tool_choice: None,
             thinking: None,
+            output_config: None,
             metadata: None,
         };
 
@@ -604,6 +605,7 @@ mod tests {
             tools: None,
             tool_choice: None,
             thinking: None,
+            output_config: None,
             metadata: None,
         };
 
@@ -628,6 +630,7 @@ mod tests {
             tools: None,
             tool_choice: None,
             thinking: None,
+            output_config: None,
             metadata: None,
         };
 
