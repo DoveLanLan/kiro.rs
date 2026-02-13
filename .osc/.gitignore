@@ -2,6 +2,7 @@
 .developer
 .current-task
 .osc-state.json
+requirements.log
 
 # Session state (auto-managed by hooks)
 .session-active
