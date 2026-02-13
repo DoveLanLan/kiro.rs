@@ -1,0 +1,22 @@
+name: plan
+description: Turn vague requests into concrete plans and task directories
+capabilities:
+  - task-create
+  - doc-write
+  - file-search
+scope:
+  - specs
+  - tasks
+tools:
+  - Read
+  - Write
+  - Bash
+  - Grep
+  - Glob
+requires_task: false
+
+lifecycle:
+  restart: never
+  max_restarts: 0
+  timeout_minutes: 30
+  heartbeat_interval: 30

@@ -49,3 +49,18 @@ Docker:
 - Never commit real tokens or credentials. Use `config.example.json` and `credentials.example*.json` to create local `config.json` / `credentials.json`.
 - When filing issues, redact `apiKey`, `refreshToken`, and any bearer tokens from logs.
 
+
+<!-- open-spec-code:start -->
+## open-spec-code (osc)
+
+When working in this repository:
+- Read `.osc/workflow.md` and `.osc/spec/*/index.md` before making changes.
+- Use `.osc/scripts/get-context.sh` for current state (developer, current task, git status).
+- Persist key outputs to files (not only chat):
+  - `.osc/spec/project-spec.md`
+  - `.osc/changes/<YYYY-MM-DD>-<slug>/...`
+  - `.osc/quality-gate.md`
+
+Codex CLI entrypoint:
+- Prefer starting via `./osc codex` so the workflow + repo context are preloaded into the initial prompt.
+<!-- open-spec-code:end -->

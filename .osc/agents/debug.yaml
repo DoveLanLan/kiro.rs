@@ -1,0 +1,23 @@
+name: debug
+description: Diagnose failures quickly and propose minimal fixes
+capabilities:
+  - diagnostics
+  - bash-execute
+  - code-edit
+scope:
+  - source-code
+  - tests
+  - logs
+tools:
+  - Read
+  - Edit
+  - Bash
+  - Grep
+  - Glob
+requires_task: true
+
+lifecycle:
+  restart: on-failure
+  max_restarts: 3
+  timeout_minutes: 60
+  heartbeat_interval: 30

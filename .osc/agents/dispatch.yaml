@@ -1,0 +1,17 @@
+name: dispatch
+description: Pure routing for workflows and multi-agent pipeline
+capabilities:
+  - routing
+  - delegation
+scope:
+  - all
+tools:
+  - Read
+  - Bash
+requires_task: false
+
+lifecycle:
+  restart: always
+  max_restarts: 5
+  timeout_minutes: 120
+  heartbeat_interval: 30

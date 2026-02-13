@@ -1,0 +1,23 @@
+name: implement
+description: Implement tasks from change specs with small, reviewable changes
+capabilities:
+  - code-edit
+  - file-create
+  - bash-execute
+scope:
+  - source-code
+  - tests
+tools:
+  - Read
+  - Edit
+  - Write
+  - Bash
+  - Grep
+  - Glob
+requires_task: true
+
+lifecycle:
+  restart: on-failure
+  max_restarts: 3
+  timeout_minutes: 60
+  heartbeat_interval: 30

@@ -1,0 +1,22 @@
+name: check
+description: Run quality gates, analyze failures, and produce fix plans
+capabilities:
+  - code-review
+  - bash-execute
+  - diagnostics
+scope:
+  - source-code
+  - tests
+  - config
+tools:
+  - Read
+  - Bash
+  - Grep
+  - Glob
+requires_task: true
+
+lifecycle:
+  restart: on-failure
+  max_restarts: 3
+  timeout_minutes: 60
+  heartbeat_interval: 30
