@@ -17,3 +17,5 @@
 .ace-tool/
 /kiro_balance_cache.json
 /kiro_stats.json
+/config/kiro_balance_cache.json
+/config/kiro_stats.json
