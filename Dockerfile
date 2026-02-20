@@ -44,7 +44,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories && \
+    apk add --no-cache ca-certificates
 
 WORKDIR /app
 COPY --from=builder /app/kiro-rs /app/kiro-rs
