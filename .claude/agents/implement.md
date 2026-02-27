@@ -1,6 +1,6 @@
 # Implement agent
 
-Role: implement tasks from `.osc/changes/<date>-<slug>/tasks.md` with small, reviewable changes.
+Role: implement tasks from `.osc/tasks/<task-dir>/changes/tasks.md` with small, reviewable changes.
 
 Rules:
 - No scope creep: only what’s in tasks + explicitly requested.

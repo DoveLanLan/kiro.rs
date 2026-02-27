@@ -14,7 +14,29 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
 
 FROM rust:1.92-alpine AS builder
 
-RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static
+ARG ALPINE_MIRROR="dl-cdn.alpinelinux.org"
+RUN set -eux; \
+    primary_mirror="${ALPINE_MIRROR#http://}"; \
+    primary_mirror="${primary_mirror#https://}"; \
+    primary_mirror="${primary_mirror%%/}"; \
+    if [ -z "${primary_mirror}" ]; then \
+      primary_mirror="dl-cdn.alpinelinux.org"; \
+    fi; \
+    installed=0; \
+    for mirror in "${primary_mirror}" "dl-cdn.alpinelinux.org" "mirrors.aliyun.com" "mirrors.tuna.tsinghua.edu.cn"; do \
+      echo "Trying Alpine mirror: ${mirror}" >&2; \
+      sed -i "s|http://[^/]*/alpine|https://${mirror}/alpine|g; s|https://[^/]*/alpine|https://${mirror}/alpine|g" /etc/apk/repositories; \
+      if apk add --no-cache musl-dev openssl-dev openssl-libs-static ca-certificates; then \
+        echo "Using Alpine mirror: ${mirror}" >&2; \
+        installed=1; \
+        break; \
+      fi; \
+      echo "Mirror failed: ${mirror}" >&2; \
+    done; \
+    if [ "${installed}" -ne 1 ]; then \
+      echo "All Alpine mirrors failed" >&2; \
+      exit 1; \
+    fi
 
 WORKDIR /app
 ARG CARGO_REGISTRY_MIRROR=""
@@ -44,8 +66,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 
 FROM alpine:3.21
 
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories && \
-    apk add --no-cache ca-certificates
+COPY --from=builder /etc/ssl /etc/ssl
 
 WORKDIR /app
 COPY --from=builder /app/kiro-rs /app/kiro-rs

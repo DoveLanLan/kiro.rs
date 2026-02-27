@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/user-prompt-submit.py\"",
-            "timeout": 5
+            "timeout": 15
           }
         ]
       }
@@ -19,7 +19,7 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.py\"",
-            "timeout": 10
+            "timeout": 40
           }
         ]
       }
@@ -46,6 +46,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/save-memory.py\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -60,6 +70,11 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/spec-changelog.py\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/conflict-detect.py\"",
             "timeout": 5
           }
         ]

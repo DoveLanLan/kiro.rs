@@ -1,0 +1,12 @@
+{
+  "autoTeam": false,
+  "teamTemplate": "",
+  "teamRuntime": "",
+  "autoGate": false,
+  "gateCommand": "npm test",
+  "gateByTaskType": {
+    "feature": "npm test",
+    "bugfix": "npm test",
+    "default": "npm test"
+  }
+}

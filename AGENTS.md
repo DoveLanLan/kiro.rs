@@ -58,7 +58,7 @@ When working in this repository:
 - Use `.osc/scripts/get-context.sh` for current state (developer, current task, git status).
 - Persist key outputs to files (not only chat):
   - `.osc/spec/project-spec.md`
-  - `.osc/changes/<YYYY-MM-DD>-<slug>/...`
+  - `.osc/tasks/<task-dir>/changes/...`
   - `.osc/quality-gate.md`
 
 Codex CLI entrypoint:

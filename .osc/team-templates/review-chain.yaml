@@ -1,0 +1,21 @@
+name: review-chain
+description: Review chain pattern — implement, review, then fix issues found in review
+roles:
+  - agent: plan
+    phase: 1
+    auto_start: true
+  - agent: implement
+    phase: 2
+    depends_on:
+      - plan
+    auto_start: true
+  - agent: check
+    phase: 3
+    depends_on:
+      - implement
+    auto_start: true
+  - agent: debug
+    phase: 4
+    depends_on:
+      - check
+    auto_start: false

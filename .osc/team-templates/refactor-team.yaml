@@ -1,0 +1,25 @@
+name: refactor-team
+description: Refactoring pattern — analyze current code, plan refactoring, implement, then thorough check
+roles:
+  - agent: research
+    phase: 1
+    auto_start: true
+  - agent: check
+    phase: 1
+    auto_start: true
+  - agent: plan
+    phase: 2
+    depends_on:
+      - research
+      - check
+    auto_start: true
+  - agent: implement
+    phase: 3
+    depends_on:
+      - plan
+    auto_start: true
+  - agent: debug
+    phase: 4
+    depends_on:
+      - implement
+    auto_start: true

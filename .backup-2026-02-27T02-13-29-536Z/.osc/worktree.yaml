@@ -1,0 +1,18 @@
+# Worktree configuration for open-spec-code multi-agent pipeline
+# Paths are relative to project root unless absolute.
+
+# Base directory to store git worktrees
+worktree_dir: ../osc-worktrees
+
+# Files copied into each worktree (optional)
+copy:
+  - .osc/.developer
+
+# Commands to run after worktree creation (optional)
+post_create:
+  # - npm install
+
+# Quality gates run by osc-loop (optional). If empty, loop falls back to completion markers.
+verify:
+  # - npm test
+

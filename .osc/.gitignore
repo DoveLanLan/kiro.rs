@@ -2,12 +2,12 @@
 .developer
 .current-task
 .osc-state.json
-requirements.log
 
 # Session state (auto-managed by hooks)
 .session-active
 .prompt-count
 .edit-count
+.change-pending
 
 # Agent runtime files
 .agents/
@@ -21,6 +21,7 @@ requirements.log
 # Atomic/merge temp files
 *.tmp
 *.new
+.tmp/
 
 # Update backups
 .backup-*

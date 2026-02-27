@@ -4,7 +4,7 @@
 
 原则：
 - Teach once, apply forever：把会重复出现的规则写进 `.osc/spec/`。
-- Write before code：任何实际改动先产出 proposal/spec/tasks，再开始修改代码。
+- Write before code（强制）：任何实际改动**必须**先产出 proposal/spec/tasks，再开始修改代码。`scope-check` 钩子会阻止未经流程的代码编辑。
 - Quality gates：收尾必须过门禁；失败先修再继续。
 
 ## 目录约定
@@ -13,7 +13,7 @@
 - `.osc/workspace/<user>/`：个人工作区（会话记录/临时思考/草稿）
 - `.osc/tasks/`：任务目录（task.json + prd/info + agent contexts）
 - `.osc/scripts/`：工具脚本（developer/context/task/session/worktree/multi-agent）
-- `.osc/changes/<date>-<slug>/`：一次变更的 proposal/spec/tasks + 总结/回归/回滚（由 `change-workflow` skill 落盘）
+- `.osc/tasks/<task-id>/changes/`：任务级变更产物（proposal/spec/tasks + 总结/回归/回滚，由 `change-workflow` skill 落盘）
 
 ## 快速开始
 

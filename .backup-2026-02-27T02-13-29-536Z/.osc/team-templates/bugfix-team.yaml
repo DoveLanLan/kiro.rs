@@ -1,0 +1,16 @@
+name: bugfix-team
+description: Fast team for bug fixes (debug → implement → check)
+roles:
+  - agent: debug
+    phase: 1
+    auto_start: true
+  - agent: implement
+    phase: 2
+    depends_on:
+      - debug
+    auto_start: true
+  - agent: check
+    phase: 3
+    depends_on:
+      - implement
+    auto_start: true

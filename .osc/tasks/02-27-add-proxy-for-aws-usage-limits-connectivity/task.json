@@ -1,0 +1,13 @@
+{
+  "name": "add proxy for aws usage limits connectivity",
+  "type": "bugfix",
+  "branch": "task/add-proxy-for-aws-usage-limits-connectivity",
+  "priority": "P1",
+  "description": "",
+  "depends_on": [],
+  "status": "planned",
+  "current_phase": 0,
+  "next_action": [],
+  "requires_change_workflow": true,
+  "change_workflow_status": "pending"
+}

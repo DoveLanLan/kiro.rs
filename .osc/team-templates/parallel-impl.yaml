@@ -1,0 +1,22 @@
+name: parallel-impl
+description: Parallel implementation — plan first, then multiple agents implement in parallel, finally check
+roles:
+  - agent: plan
+    phase: 1
+    auto_start: true
+  - agent: implement
+    phase: 2
+    depends_on:
+      - plan
+    auto_start: true
+  - agent: research
+    phase: 2
+    depends_on:
+      - plan
+    auto_start: true
+  - agent: check
+    phase: 3
+    depends_on:
+      - implement
+      - research
+    auto_start: true

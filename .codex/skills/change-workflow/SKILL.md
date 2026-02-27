@@ -70,7 +70,11 @@ Follow this deterministic workflow to take any requested change from “what sho
 
 ## Artifact templates (AUTO-WRITE)
 
-Default folder path: `.osc/changes/<YYYY-MM-DD>-<slug>/`
+Default folder path (task-aware):
+- **Task is mandatory**: write to `.osc/tasks/<task-dir>/changes/` (e.g., `.osc/tasks/02-25-my-feature/changes/`)
+- **If no task is selected**: create/select one first, then write to that task's `changes/` directory.
+
+To determine the current task, read `.osc/.current-task` for the relative task directory path.
 
 **Hard rule:** When using this skill, do not only print the artifacts in chat. You MUST create or update the corresponding markdown files in the repository so the artifacts persist.
 

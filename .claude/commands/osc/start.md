@@ -6,7 +6,7 @@
 
 1) 读取 `.osc/workflow.md` 与 `.osc/spec/*/index.md`（如果索引为空，先补齐链接/约定）。
 2) 如果仓库还没有项目规范：运行 `project-spec`，写入 `.osc/spec/project-spec.md`。
-3) 如果这是一次变更：运行 `change-workflow`，写入 `.osc/changes/<YYYY-MM-DD>-<slug>/` 的 proposal/spec/tasks。
+3) 如果这是一次变更：先创建/选择任务，再运行 `change-workflow`，产物统一写入当前任务目录的 `changes/`（如 `.osc/tasks/<task>/changes/`）。
 4) 如果用户明确要求实现：按 `tasks.md` 逐条实施。
 5) 收尾：运行 `quality-gate`，写入 `.osc/quality-gate.md`。
 

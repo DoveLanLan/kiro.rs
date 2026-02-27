@@ -9,7 +9,7 @@ Before committing or submitting a PR, run this checklist to wrap up your work.
 
 # Steps
 
-1) Update change docs: `.osc/changes/<date>-<slug>/change-summary.md`
+1) Update change docs: `.osc/tasks/<task-dir>/changes/change-summary.md`
 2) Run quality gate: follow `.osc/quality-gate.md`
 3) Record session: use `record-session` skill
 4) Mark task done:

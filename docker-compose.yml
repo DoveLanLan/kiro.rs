@@ -6,6 +6,9 @@ services:
         # 可选：国内网络可开启 rsproxy 镜像加速（sparse 协议）
         # 示例：CARGO_REGISTRY_MIRROR=sparse+https://rsproxy.cn/crates.io-index/
         CARGO_REGISTRY_MIRROR: ${CARGO_REGISTRY_MIRROR:-}
+        # 可选：自定义 Alpine 镜像源主机（支持 host 或 https://host）
+        # 示例：ALPINE_MIRROR=mirrors.tuna.tsinghua.edu.cn
+        ALPINE_MIRROR: ${ALPINE_MIRROR:-dl-cdn.alpinelinux.org}
     ports:
       - "8990:8990"
     volumes:

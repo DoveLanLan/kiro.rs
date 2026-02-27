@@ -1,0 +1,21 @@
+name: spike-team
+description: Spike/explore pattern — research first, then plan based on findings, then implement
+roles:
+  - agent: research
+    phase: 1
+    auto_start: true
+  - agent: plan
+    phase: 2
+    depends_on:
+      - research
+    auto_start: true
+  - agent: implement
+    phase: 3
+    depends_on:
+      - plan
+    auto_start: true
+  - agent: check
+    phase: 4
+    depends_on:
+      - implement
+    auto_start: true

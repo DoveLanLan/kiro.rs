@@ -1,0 +1,28 @@
+# Runtime state (local only)
+.developer
+.current-task
+.osc-state.json
+
+# Session state (auto-managed by hooks)
+.session-active
+.prompt-count
+.edit-count
+
+# Agent runtime files
+.agents/
+.agent-log
+.agent-runner.sh
+.session-id
+
+# Task runtime files
+.plan-log
+
+# Atomic/merge temp files
+*.tmp
+*.new
+
+# Update backups
+.backup-*
+
+# Team runtime state
+teams/

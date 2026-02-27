@@ -1,0 +1,23 @@
+name: research
+description: Look up authoritative docs and specs for implementation decisions
+capabilities:
+  - web-search
+  - file-search
+  - doc-analysis
+scope:
+  - docs
+  - specs
+  - external
+tools:
+  - Read
+  - WebFetch
+  - WebSearch
+  - Grep
+  - Glob
+requires_task: false
+
+lifecycle:
+  restart: never
+  max_restarts: 0
+  timeout_minutes: 30
+  heartbeat_interval: 30

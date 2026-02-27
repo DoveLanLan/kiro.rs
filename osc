@@ -7,8 +7,10 @@ Usage:
   ./osc <command> [options]
 
 Commands:
-  codex   [-p "<extra prompt>"] [-- <codex args...>]
+  codex   [-p "<extra prompt>"] [--auto-task|--no-auto-task] [--auto-team] [--team-template <name>] [--team-runtime <claude|codex>] [--auto-gate] [--gate-cmd "<cmd>"] [-- <codex args...>]
           Launch Codex with osc workflow context.
+  gate    [--cmd "<command>"]
+          Run local quality gate and write .osc/quality-gate.md.
   status  Show current repo context (.osc/scripts/get-context.sh).
   task    [args...]  Manage tasks (.osc/scripts/task.sh).
           Subcommands: list, create, select, clear, archive, status, done, progress
@@ -16,8 +18,13 @@ Commands:
 
 Examples:
   ./osc codex
+  ./osc codex --auto-task -p "修复登录 bug 并补测试"
   ./osc codex -p "实现一个新的登录页"
+  ./osc codex --auto-team --team-template feature-team --team-runtime codex
+  ./osc codex --auto-gate --gate-cmd "npm test"
   ./osc codex -p "fix lint errors" -- --model o3 --sandbox workspace-write
+  ./osc gate
+  ./osc gate --cmd "npm test"
   ./osc status
   ./osc task list
   ./osc task create "Add login page"
@@ -33,6 +40,10 @@ die() {
   exit 1
 }
 
+warn() {
+  echo "WARN: $*" >&2
+}
+
 repo_root() {
   if root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
     echo "$root"
@@ -43,9 +54,505 @@ repo_root() {
   pwd
 }
 
+parse_bool() {
+  local raw="${1:-}"
+  local v
+  v="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  case "$v" in
+    1|true|yes|on) echo "1" ;;
+    0|false|no|off|"") echo "0" ;;
+    *) echo "" ;;
+  esac
+}
+
+should_collect_startup_request() {
+  local mode=""
+  mode="$(parse_bool "${OSC_CODEX_PROMPT_ON_START:-}")"
+  if [[ "$mode" == "1" ]]; then
+    return 0
+  fi
+  if [[ "$mode" == "0" ]]; then
+    return 1
+  fi
+  [[ -t 0 && -t 1 ]]
+}
+
+collect_startup_request() {
+  local existing="${1:-}"
+  local entered=""
+  local compact=""
+
+  if [[ -n "$existing" ]]; then
+    printf '%s' "$existing"
+    return 0
+  fi
+
+  if ! should_collect_startup_request; then
+    printf ''
+    return 0
+  fi
+
+  echo "[osc] Enter initial request (optional, press Enter to skip):" >&2
+  if IFS= read -r entered; then
+    :
+  else
+    entered=""
+  fi
+
+  compact="$(printf '%s' "$entered" | tr -d '[:space:]')"
+  if [[ -z "$compact" ]]; then
+    entered=""
+  fi
+  printf '%s' "$entered"
+}
+
+PROFILE_AUTO_TEAM=0
+PROFILE_TEAM_TEMPLATE=""
+PROFILE_TEAM_RUNTIME=""
+PROFILE_AUTO_GATE=0
+PROFILE_GATE_COMMAND="npm test"
+PROFILE_GATE_BY_TYPE_JSON="{}"
+PROFILE_AUTO_TASK=1
+
+load_codex_profile() {
+  local root="$1"
+  local profile="$root/.osc/codex-profile.json"
+  PROFILE_AUTO_TEAM=0
+  PROFILE_TEAM_TEMPLATE=""
+  PROFILE_TEAM_RUNTIME=""
+  PROFILE_AUTO_GATE=0
+  PROFILE_GATE_COMMAND="npm test"
+  PROFILE_GATE_BY_TYPE_JSON="{}"
+  PROFILE_AUTO_TASK=1
+
+  [[ -f "$profile" ]] || return 0
+
+  if ! command -v jq >/dev/null 2>&1; then
+    warn "jq not found; skip profile parsing ($profile)"
+    return 0
+  fi
+
+  if ! jq -e . "$profile" >/dev/null 2>&1; then
+    warn "invalid JSON in $profile; fallback to defaults"
+    return 0
+  fi
+
+  local raw="" parsed=""
+  raw="$(jq -r 'if has("autoTeam") then .autoTeam else empty end' "$profile" 2>/dev/null || true)"
+  if [[ -n "$raw" ]]; then
+    parsed="$(parse_bool "$raw")"
+    if [[ -n "$parsed" ]]; then
+      PROFILE_AUTO_TEAM="$parsed"
+    else
+      warn "invalid autoTeam in $profile (expected boolean)"
+    fi
+  fi
+
+  raw="$(jq -r '.teamTemplate // empty' "$profile" 2>/dev/null || true)"
+  if [[ -n "$raw" && "$raw" != "null" ]]; then
+    PROFILE_TEAM_TEMPLATE="$raw"
+  fi
+
+  raw="$(jq -r '.teamRuntime // empty' "$profile" 2>/dev/null || true)"
+  if [[ -n "$raw" && "$raw" != "null" ]]; then
+    if [[ "$raw" == "claude" || "$raw" == "codex" ]]; then
+      PROFILE_TEAM_RUNTIME="$raw"
+    else
+      warn "invalid teamRuntime in $profile (use claude|codex)"
+    fi
+  fi
+
+  raw="$(jq -r 'if has("autoGate") then .autoGate else empty end' "$profile" 2>/dev/null || true)"
+  if [[ -n "$raw" ]]; then
+    parsed="$(parse_bool "$raw")"
+    if [[ -n "$parsed" ]]; then
+      PROFILE_AUTO_GATE="$parsed"
+    else
+      warn "invalid autoGate in $profile (expected boolean)"
+    fi
+  fi
+
+  raw="$(jq -r 'if has("autoTask") then .autoTask else empty end' "$profile" 2>/dev/null || true)"
+  if [[ -n "$raw" ]]; then
+    parsed="$(parse_bool "$raw")"
+    if [[ -n "$parsed" ]]; then
+      PROFILE_AUTO_TASK="$parsed"
+    else
+      warn "invalid autoTask in $profile (expected boolean)"
+    fi
+  fi
+
+  raw="$(jq -r '.gateCommand // empty' "$profile" 2>/dev/null || true)"
+  if [[ -n "$raw" && "$raw" != "null" ]]; then
+    PROFILE_GATE_COMMAND="$raw"
+  fi
+
+  raw="$(jq -c '.gateByTaskType // {}' "$profile" 2>/dev/null || true)"
+  if [[ -n "$raw" && "$raw" != "null" ]]; then
+    if jq -e 'type == "object"' >/dev/null 2>&1 <<<"$raw"; then
+      PROFILE_GATE_BY_TYPE_JSON="$raw"
+    else
+      warn "invalid gateByTaskType in $profile (expected object)"
+    fi
+  fi
+}
+
+current_task_type() {
+  local root="$1"
+  local task_rel=""
+  local task_json=""
+  task_rel="$(read_current_task "$root" || true)"
+  [[ -n "$task_rel" ]] || { echo ""; return 0; }
+
+  task_json="$root/$task_rel/task.json"
+  [[ -f "$task_json" ]] || { echo ""; return 0; }
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.type // ""' "$task_json" 2>/dev/null || true
+  else
+    # Fallback: very loose parse when jq is unavailable.
+    sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$task_json" | head -n 1
+  fi
+}
+
+resolve_gate_command() {
+  local root="$1"
+  local explicit_cmd="${2:-}"
+  local selected=""
+  local task_type=""
+  local by_type=""
+  local default_by_type=""
+
+  if [[ -n "$explicit_cmd" ]]; then
+    printf '%s' "$explicit_cmd"
+    return 0
+  fi
+
+  selected="$PROFILE_GATE_COMMAND"
+  task_type="$(current_task_type "$root")"
+
+  if command -v jq >/dev/null 2>&1; then
+    if [[ -n "$task_type" ]]; then
+      by_type="$(jq -r --arg t "$task_type" '.[$t] // empty' <<<"$PROFILE_GATE_BY_TYPE_JSON" 2>/dev/null || true)"
+    fi
+    default_by_type="$(jq -r '.default // empty' <<<"$PROFILE_GATE_BY_TYPE_JSON" 2>/dev/null || true)"
+    if [[ -n "$by_type" && "$by_type" != "null" ]]; then
+      selected="$by_type"
+    elif [[ -n "$default_by_type" && "$default_by_type" != "null" ]]; then
+      selected="$default_by_type"
+    fi
+  fi
+
+  [[ -n "$selected" ]] || selected="npm test"
+  printf '%s' "$selected"
+}
+
+write_quality_gate_report() {
+  local root="$1"
+  local trigger="$2"
+  local gate_cmd="$3"
+  local exit_code="$4"
+  local started_at="$5"
+  local finished_at="$6"
+  local log_path="$7"
+  local report_path="$root/.osc/quality-gate.md"
+  local status="PASS"
+  if [[ "$exit_code" -ne 0 ]]; then
+    status="FAIL"
+  fi
+
+  local excerpt=""
+  excerpt="$(tail -n 120 "$log_path" 2>/dev/null || true)"
+  local rel_log
+  rel_log="$(printf '%s' "$log_path" | sed "s|^$root/||")"
+  local safe_cmd
+  safe_cmd="$(printf '%s' "$gate_cmd" | sed 's/`/\\`/g')"
+
+  cat >"$report_path" <<EOF
+# Quality Gate Report
+
+- Trigger: $trigger
+- Started At: $started_at
+- Finished At: $finished_at
+- Command: \`$safe_cmd\`
+- Status: $status
+- Exit Code: $exit_code
+- Log File: \`$rel_log\`
+
+## Output Excerpt (last 120 lines)
+
+\`\`\`text
+$excerpt
+\`\`\`
+EOF
+}
+
+run_gate() {
+  local root="$1"
+  local gate_cmd="$2"
+  local trigger="${3:-manual}"
+  local log_dir="$root/.osc/.tmp"
+  local log_path="$log_dir/gate-last.log"
+  local started_at=""
+  local finished_at=""
+  local rc=0
+
+  [[ -n "$gate_cmd" ]] || gate_cmd="npm test"
+  mkdir -p "$log_dir"
+  started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+  {
+    printf '$ %s\n' "$gate_cmd"
+    set +e
+    bash -lc "$gate_cmd"
+    rc=$?
+    set -e
+    printf '\n[osc] gate exit=%s\n' "$rc"
+  } >"$log_path" 2>&1
+
+  finished_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  write_quality_gate_report "$root" "$trigger" "$gate_cmd" "$rc" "$started_at" "$finished_at" "$log_path"
+
+  if [[ "$rc" -eq 0 ]]; then
+    echo "[osc] gate passed. report: .osc/quality-gate.md"
+  else
+    echo "[osc] gate failed (exit=$rc). report: .osc/quality-gate.md" >&2
+  fi
+  return "$rc"
+}
+
+read_current_task() {
+  local root="$1"
+  local task_file="$root/.osc/.current-task"
+  [[ -f "$task_file" ]] || return 0
+  local task_rel=""
+  task_rel="$(head -n 1 "$task_file" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  [[ -n "${task_rel:-}" ]] || return 0
+  task_rel="${task_rel#./}"
+  task_rel="${task_rel%/}"
+  [[ -d "$root/$task_rel" ]] || return 0
+  printf '%s\n' "$task_rel"
+}
+
+find_existing_team_for_task() {
+  local root="$1"
+  local task_rel="$2"
+  local teams_dir="$root/.osc/teams"
+  [[ -d "$teams_dir" ]] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+
+  local team_json=""
+  for team_json in "$teams_dir"/*/team.json; do
+    [[ -f "$team_json" ]] || continue
+    local status=""
+    local task=""
+    local team_id=""
+    status="$(jq -r '.status // ""' "$team_json" 2>/dev/null || true)"
+    task="$(jq -r '.task // ""' "$team_json" 2>/dev/null || true)"
+    team_id="$(jq -r '.id // ""' "$team_json" 2>/dev/null || true)"
+    [[ "$task" == "$task_rel" ]] || continue
+    [[ "$status" == "created" || "$status" == "running" ]] || continue
+    [[ -n "$team_id" ]] || team_id="$(basename "$(dirname "$team_json")")"
+    echo "${team_id}|${status}"
+    return 0
+  done
+  return 1
+}
+
+run_team_command() {
+  local root="$1"
+  shift
+  local script="$root/.osc/scripts/team.sh"
+  [[ -f "$script" ]] || return 127
+  if [[ -x "$script" ]]; then
+    "$script" "$@"
+  else
+    bash "$script" "$@"
+  fi
+}
+
+auto_team_bootstrap() {
+  local root="$1"
+  local team_template="${2:-}"
+  local team_runtime="${3:-}"
+  local current_task=""
+  local existing=""
+  local team_id=""
+  local team_status=""
+  local action="start"
+  local summary=""
+  local create_output=""
+  local create_exit=0
+  local start_output=""
+  local start_exit=0
+  local -a create_args=()
+  local -a start_args=()
+
+  current_task="$(read_current_task "$root" || true)"
+  if [[ -z "$current_task" ]]; then
+    printf '%s' "[osc] auto-team skipped: no active task (.osc/.current-task is empty)"
+    return 0
+  fi
+
+  existing="$(find_existing_team_for_task "$root" "$current_task" || true)"
+  if [[ -n "$existing" ]]; then
+    IFS='|' read -r team_id team_status <<<"$existing"
+    if [[ "$team_status" == "running" ]]; then
+      action="resume"
+    else
+      action="start"
+    fi
+    summary="[osc] auto-team reused existing team ${team_id} (status=${team_status})"
+  else
+    create_args=(create "$current_task")
+    if [[ -n "$team_template" ]]; then
+      create_args+=(--template "$team_template")
+    else
+      create_args+=(--auto)
+    fi
+
+    if create_output="$(run_team_command "$root" "${create_args[@]}" 2>&1)"; then
+      team_id="$(printf '%s\n' "$create_output" | sed -n 's/^created team:[[:space:]]*//p' | head -n 1)"
+      if [[ -z "$team_id" ]]; then
+        team_id="$(printf '%s\n' "$create_output" | sed -n 's/.*created team:[[:space:]]*//p' | head -n 1)"
+      fi
+      summary="[osc] auto-team create: ok"
+    else
+      create_exit=$?
+      printf '[osc] auto-team create failed (exit=%s). launching codex without automation.\n' "$create_exit" >&2
+      printf '%s\n' "$create_output" >&2
+      printf '%s' "[osc] auto-team create failed: exit=${create_exit}"
+      return 0
+    fi
+  fi
+
+  if [[ -z "$team_id" ]]; then
+    printf '%s' "[osc] auto-team create succeeded but team id was not detected"
+    return 0
+  fi
+
+  start_args=("$action" "$team_id")
+  if [[ -n "$team_runtime" ]]; then
+    start_args+=(--runtime "$team_runtime")
+  fi
+
+  if start_output="$(run_team_command "$root" "${start_args[@]}" 2>&1)"; then
+    printf '%s\n%s' "$summary" "[osc] auto-team ${action}: ok (team=${team_id})"
+  else
+    start_exit=$?
+    printf '[osc] auto-team %s failed for %s (exit=%s). launching codex anyway.\n' "$action" "$team_id" "$start_exit" >&2
+    printf '%s\n' "$start_output" >&2
+    printf '%s\n%s' "$summary" "[osc] auto-team ${action} failed: exit=${start_exit} (team=${team_id})"
+  fi
+}
+
+AUTO_TASK_CREATED_REL=""
+
+detect_change_intent() {
+  local prompt="${1:-}"
+  if [[ -z "$prompt" ]]; then
+    echo ""
+    return 0
+  fi
+
+  if printf '%s' "$prompt" | grep -Eiq '(bug|fix|debug|error|broken|failed|not working|报错|错误|失败|修复)'; then
+    echo "bugfix"
+    return 0
+  fi
+  if printf '%s' "$prompt" | grep -Eiq '(refactor|重构)'; then
+    echo "refactor"
+    return 0
+  fi
+  if printf '%s' "$prompt" | grep -Eiq '(feature|implement|add|change|modify|update|migrate|优化|新增|实现|修改|开发|改造)'; then
+    echo "feature"
+    return 0
+  fi
+  echo ""
+}
+
+slugify_prompt() {
+  local prompt="${1:-}"
+  local intent="${2:-feature}"
+  local slug=""
+  slug="$(printf '%s' "$prompt" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-*//; s/-*$//; s/--\+/-/g')"
+  slug="$(printf '%s' "$slug" | cut -d'-' -f1-6)"
+  if [[ -z "$slug" ]]; then
+    slug="${intent}-$(date +%H%M%S)"
+  fi
+  printf '%.50s' "$slug"
+}
+
+auto_task_bootstrap() {
+  local root="$1"
+  local prompt="${2:-}"
+  local task_script="$root/.osc/scripts/task.sh"
+  local current_task=""
+  local intent=""
+  local task_type="feature"
+  local title=""
+  local slug=""
+  local output=""
+  local rc=0
+  local created_rel=""
+  AUTO_TASK_CREATED_REL=""
+
+  [[ -n "$prompt" ]] || { printf ''; return 0; }
+  [[ -f "$task_script" ]] || { printf ''; return 0; }
+
+  current_task="$(read_current_task "$root" || true)"
+  [[ -z "$current_task" ]] || { printf ''; return 0; }
+
+  intent="$(detect_change_intent "$prompt")"
+  [[ -n "$intent" ]] || { printf ''; return 0; }
+
+  case "$intent" in
+    bugfix|refactor) task_type="$intent" ;;
+    *) task_type="feature" ;;
+  esac
+
+  title="$(printf '%s\n' "$prompt" | head -n 1 | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [[ -z "$title" ]]; then
+    title="Auto task: ${intent}"
+  fi
+  title="$(printf '%.80s' "$title")"
+  slug="$(slugify_prompt "$prompt" "$intent")"
+
+  set +e
+  if [[ -x "$task_script" ]]; then
+    output="$("$task_script" create "$title" --type "$task_type" --slug "$slug" 2>&1)"
+  else
+    output="$(bash "$task_script" create "$title" --type "$task_type" --slug "$slug" 2>&1)"
+  fi
+  rc=$?
+  set -e
+
+  if [[ "$rc" -ne 0 ]]; then
+    local first_line=""
+    first_line="$(printf '%s\n' "$output" | sed -n '1p')"
+    printf '%s\n%s\n%s' \
+      "[osc] auto-task failed (exit=$rc): ${first_line:-unknown error}" \
+      "[osc] codex launch continues. create/select task manually if needed:" \
+      "[osc]   ./.osc/scripts/task.sh create \"<title>\" && ./.osc/scripts/task.sh select .osc/tasks/<task-dir>"
+    return 0
+  fi
+
+  created_rel="$(printf '%s\n' "$output" | sed -n 's/^created:[[:space:]]*//p' | head -n 1)"
+  if [[ -z "$created_rel" ]]; then
+    created_rel="$(read_current_task "$root" || true)"
+  fi
+  AUTO_TASK_CREATED_REL="$created_rel"
+  if [[ -n "$created_rel" ]]; then
+    printf '%s' "[osc] auto-task created: ${created_rel} (type=${task_type})"
+  else
+    printf '%s' "[osc] auto-task created, but task id was not detected from output."
+  fi
+}
+
 build_codex_prompt() {
   local root="$1"
   local extra="${2:-}"
+  local auto_team_summary="${3:-}"
+  local auto_task_summary="${4:-}"
 
   local workflow_path="$root/.osc/workflow.md"
   local context_cmd="$root/.osc/scripts/get-context.sh"
@@ -62,6 +569,49 @@ build_codex_prompt() {
     context="$(bash "$context_cmd" || true)"
   fi
 
+  local auto_team_block=""
+  if [[ -n "$auto_team_summary" ]]; then
+    auto_team_block=$(cat <<EOF
+Auto-team preflight:
+\`\`\`
+$auto_team_summary
+\`\`\`
+
+EOF
+)
+  fi
+
+  local auto_task_block=""
+  if [[ -n "$auto_task_summary" ]]; then
+    auto_task_block=$(cat <<EOF
+Auto-task preflight:
+\`\`\`
+$auto_task_summary
+\`\`\`
+
+EOF
+)
+  fi
+
+  local change_pending_block=""
+  if [[ -f "$root/.osc/.change-pending" ]]; then
+    change_pending_block=$(cat <<'CPEOF'
+
+⚠️ ACTIVE CHANGE-PENDING STATE ⚠️
+A change request has been detected but change-workflow artifacts have NOT been created yet.
+You MUST NOT modify any source code files until you create:
+  .osc/tasks/<task-dir>/changes/proposal.md
+  .osc/tasks/<task-dir>/changes/spec.md
+  .osc/tasks/<task-dir>/changes/tasks.md
+If no current task is selected, create/select one first via:
+  ./.osc/scripts/task.sh create "<title>"
+  ./.osc/scripts/task.sh select .osc/tasks/<task-dir>
+Run change-workflow FIRST, then proceed with code changes.
+
+CPEOF
+)
+  fi
+
   cat <<EOF
 You are working in this repository. Follow the open-spec-code (osc) workflow.
 
@@ -69,8 +619,15 @@ Critical rule: do not only output results in chat — write the required Markdow
 
 Required artifact destinations (when applicable):
 - Project spec: .osc/spec/project-spec.md
-- Change package: .osc/changes/<YYYY-MM-DD>-<slug>/
+- Change package: .osc/tasks/<task-dir>/changes/
 - Quality gate report: .osc/quality-gate.md
+
+CHANGE WORKFLOW RULE (MANDATORY):
+When the user requests code changes, bug fixes, or refactoring:
+1. You MUST first create/select a task, then run change-workflow to create .osc/tasks/<task-dir>/changes/ with proposal.md, spec.md, and tasks.md.
+2. You may ONLY modify source code files AFTER all three artifacts exist.
+3. Exception: if the user explicitly says to skip (e.g., "直接改", "skip workflow", "just do it").
+4. Files under .osc/ are always allowed (they are workflow artifacts, not source code).
 
 First, read these files:
 - .osc/workflow.md
@@ -85,6 +642,17 @@ Workflow guide (.osc/workflow.md):
 \`\`\`
 $workflow
 \`\`\`
+
+$auto_task_block
+$auto_team_block
+$change_pending_block
+TEAM SYSTEM:
+You have access to a multi-agent team system for complex tasks. Use it to parallelize work:
+- Create a team: ./.osc/scripts/team.sh create <task-dir> [--auto]
+- Start a team:  ./.osc/scripts/team.sh start <team-id>
+- Check status:  ./.osc/scripts/team.sh status <team-id>
+- Stop a team:   ./.osc/scripts/team.sh stop <team-id>
+When a task involves multiple roles (e.g., frontend + backend, or review + implement), consider using teams.
 
 User request:
 $extra
@@ -107,6 +675,20 @@ main() {
       ;;
     codex)
       local extra_prompt=""
+      local auto_task=1
+      local auto_task_set=0
+      local auto_team=0
+      local auto_team_set=0
+      local team_template=""
+      local team_template_set=0
+      local team_runtime=""
+      local team_runtime_set=0
+      local auto_gate=0
+      local auto_gate_set=0
+      local gate_cmd=""
+      local gate_cmd_set=0
+      local auto_task_summary=""
+      local auto_team_summary=""
       local -a codex_args=()
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -118,6 +700,62 @@ main() {
             shift
             [[ $# -gt 0 ]] || die "Missing value for --prompt"
             extra_prompt="$1"
+            shift
+            ;;
+          --auto-task)
+            auto_task=1
+            auto_task_set=1
+            shift
+            ;;
+          --no-auto-task)
+            auto_task=0
+            auto_task_set=1
+            shift
+            ;;
+          --auto-team)
+            auto_team=1
+            auto_team_set=1
+            shift
+            ;;
+          --team-template)
+            shift
+            [[ $# -gt 0 ]] || die "Missing value for --team-template"
+            team_template="$1"
+            team_template_set=1
+            shift
+            ;;
+          --team-template=*)
+            team_template="${1#--team-template=}"
+            team_template_set=1
+            shift
+            ;;
+          --team-runtime)
+            shift
+            [[ $# -gt 0 ]] || die "Missing value for --team-runtime"
+            team_runtime="$1"
+            team_runtime_set=1
+            shift
+            ;;
+          --team-runtime=*)
+            team_runtime="${1#--team-runtime=}"
+            team_runtime_set=1
+            shift
+            ;;
+          --auto-gate)
+            auto_gate=1
+            auto_gate_set=1
+            shift
+            ;;
+          --gate-cmd)
+            shift
+            [[ $# -gt 0 ]] || die "Missing value for --gate-cmd"
+            gate_cmd="$1"
+            gate_cmd_set=1
+            shift
+            ;;
+          --gate-cmd=*)
+            gate_cmd="${1#--gate-cmd=}"
+            gate_cmd_set=1
             shift
             ;;
           --)
@@ -137,17 +775,110 @@ main() {
       root="$(repo_root)"
       [[ -d "$root/.osc" ]] || die "Missing .osc/ (run: open-spec-code init -u <name>)"
 
+      load_codex_profile "$root"
+      if (( !auto_task_set )); then
+        auto_task="$PROFILE_AUTO_TASK"
+      fi
+      if (( !auto_team_set )) && (( PROFILE_AUTO_TEAM )); then
+        auto_team=1
+      fi
+      if (( !team_template_set )) && [[ -n "$PROFILE_TEAM_TEMPLATE" ]]; then
+        team_template="$PROFILE_TEAM_TEMPLATE"
+      fi
+      if (( !team_runtime_set )) && [[ -n "$PROFILE_TEAM_RUNTIME" ]]; then
+        team_runtime="$PROFILE_TEAM_RUNTIME"
+      fi
+      if (( !auto_gate_set )) && (( PROFILE_AUTO_GATE )); then
+        auto_gate=1
+      fi
+      if (( !gate_cmd_set )); then
+        gate_cmd="$(resolve_gate_command "$root" "")"
+      fi
+
+      extra_prompt="$(collect_startup_request "$extra_prompt")"
+
+      if [[ -n "$team_runtime" && "$team_runtime" != "claude" && "$team_runtime" != "codex" ]]; then
+        die "Invalid --team-runtime: $team_runtime (use claude|codex)"
+      fi
+
+      # Mark runtime so hooks can detect they are running under Codex CLI
+      export OSC_RUNTIME=codex
+
+      if ((auto_task)); then
+        auto_task_summary="$(auto_task_bootstrap "$root" "$extra_prompt")"
+      fi
+
+      if ((auto_team)); then
+        auto_team_summary="$(auto_team_bootstrap "$root" "$team_template" "$team_runtime")"
+      fi
+
       local prompt
-      prompt="$(build_codex_prompt "$root" "$extra_prompt")"
+      prompt="$(build_codex_prompt "$root" "$extra_prompt" "$auto_team_summary" "$auto_task_summary")"
 
       # NOTE: macOS ships bash 3.2 by default. With `set -u`, expanding an empty
       # array like "${arr[@]}" triggers "unbound variable". So only expand when
       # the array has elements.
       if ((${#codex_args[@]})); then
+        if ((auto_gate)); then
+          local codex_rc=0
+          set +e
+          codex "${codex_args[@]}" "$prompt"
+          codex_rc=$?
+          set -e
+          if [[ "$codex_rc" -ne 0 ]]; then
+            exit "$codex_rc"
+          fi
+          run_gate "$root" "$gate_cmd" "auto-gate"
+          exit $?
+        fi
         exec codex "${codex_args[@]}" "$prompt"
       else
+        if ((auto_gate)); then
+          local codex_rc=0
+          set +e
+          codex "$prompt"
+          codex_rc=$?
+          set -e
+          if [[ "$codex_rc" -ne 0 ]]; then
+            exit "$codex_rc"
+          fi
+          run_gate "$root" "$gate_cmd" "auto-gate"
+          exit $?
+        fi
         exec codex "$prompt"
       fi
+      ;;
+    gate)
+      local gate_cmd=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          -h|--help)
+            usage
+            exit 0
+            ;;
+          --cmd)
+            shift
+            [[ $# -gt 0 ]] || die "Missing value for --cmd"
+            gate_cmd="$1"
+            shift
+            ;;
+          --cmd=*)
+            gate_cmd="${1#--cmd=}"
+            shift
+            ;;
+          *)
+            die "Unknown argument for ./osc gate: $1 (use --help)"
+            ;;
+        esac
+      done
+
+      local root
+      root="$(repo_root)"
+      [[ -d "$root/.osc" ]] || die "Missing .osc/ (run: open-spec-code init -u <name>)"
+      load_codex_profile "$root"
+      gate_cmd="$(resolve_gate_command "$root" "$gate_cmd")"
+      run_gate "$root" "$gate_cmd" "manual"
+      exit $?
       ;;
     status)
       local root

@@ -5,28 +5,18 @@ If a .shutdown signal file is detected for any agent, outputs a JSON message
 telling the agent to wrap up gracefully.
 """
 
-import json
-import sys
-import os
 import glob
+import json
+import os
+import sys
 from datetime import datetime, timezone
 
-
-def find_repo_root():
-    current = os.getcwd()
-    while current != os.path.dirname(current):
-        if os.path.isdir(os.path.join(current, ".osc")):
-            return current
-        current = os.path.dirname(current)
-    return None
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _osc_utils import DIR_OSC, find_repo_root, read_hook_input
 
 
 def main():
-    try:
-        raw = sys.stdin.read()
-        hook_input = json.loads(raw) if raw.strip() else {}
-    except Exception:
-        hook_input = {}
+    hook_input = read_hook_input()
 
     if hook_input.get("hook_event_name") != "Notification":
         print(json.dumps({}))
@@ -37,7 +27,7 @@ def main():
         print(json.dumps({}))
         return
 
-    teams_dir = os.path.join(repo, ".osc", "teams")
+    teams_dir = os.path.join(str(repo), DIR_OSC, "teams")
     if not os.path.isdir(teams_dir):
         print(json.dumps({}))
         return
@@ -91,6 +81,10 @@ def main():
         print(json.dumps({"message": " ".join(shutdown_messages)}))
     else:
         print(json.dumps({}))
+
+    # Output success marker to stderr
+    sys.stderr.write("Notification:heartbeat hook success\n")
+    sys.stderr.flush()
 
 
 if __name__ == "__main__":

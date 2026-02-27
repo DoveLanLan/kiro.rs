@@ -15,9 +15,17 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _osc_utils import (
+    DIR_OSC,
+    find_repo_root,
+    get_current_task,
+    read_hook_input,
+    read_json,
+    read_text,
+    write_json,
+)
 
-DIR_OSC = ".osc"
-FILE_CURRENT_TASK = ".current-task"
 STATE_FILE = ".osc-state.json"
 WORKTREE_YAML = ".osc/worktree.yaml"
 
@@ -26,47 +34,13 @@ MAX_ITERATIONS = 3
 STATE_TIMEOUT_MINUTES = 30
 
 
-def find_repo_root(start: Path) -> Path | None:
-    current = start.resolve()
-    while current != current.parent:
-        if (current / DIR_OSC).is_dir():
-            return current
-        if (current / ".git").exists():
-            return current
-        current = current.parent
-    return None
-
-
-def read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except Exception:
-        return ""
-
-
-def get_current_task(repo_root: Path) -> str | None:
-    p = repo_root / DIR_OSC / FILE_CURRENT_TASK
-    if not p.exists():
-        return None
-    v = read_text(p).strip()
-    return v or None
-
-
 def load_state(repo_root: Path) -> dict:
-    p = repo_root / DIR_OSC / STATE_FILE
-    try:
-        return json.loads(read_text(p) or "{}")
-    except Exception:
-        return {}
+    data = read_json(repo_root / DIR_OSC / STATE_FILE)
+    return data if isinstance(data, dict) else {}
 
 
 def save_state(repo_root: Path, state: dict) -> None:
-    p = repo_root / DIR_OSC / STATE_FILE
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    except Exception:
-        pass
+    write_json(repo_root / DIR_OSC / STATE_FILE, state)
 
 
 def parse_verify_commands(repo_root: Path) -> list[str]:
@@ -98,15 +72,11 @@ def run_verify(repo_root: Path, cmds: list[str]) -> tuple[bool, str]:
     for cmd in cmds:
         try:
             r = subprocess.run(
-                cmd,
-                shell=True,
-                cwd=str(repo_root),
-                capture_output=True,
-                timeout=120,
+                cmd, shell=True, cwd=str(repo_root),
+                capture_output=True, timeout=120,
             )
             if r.returncode != 0:
-                out = (r.stderr or b"" or r.stdout or b"").decode("utf-8", errors="replace")
-                out = out.strip()
+                out = (r.stderr or b"" or r.stdout or b"").decode("utf-8", errors="replace").strip()
                 if len(out) > 800:
                     out = out[:800] + "…"
                 return False, f"Command failed: {cmd}\n{out}"
@@ -118,34 +88,32 @@ def run_verify(repo_root: Path, cmds: list[str]) -> tuple[bool, str]:
 
 
 def completion_markers(repo_root: Path, task_rel: str) -> list[str]:
-    check_jsonl = repo_root / task_rel / "check.jsonl"
     markers: list[str] = []
-    if check_jsonl.exists():
-        for line in read_text(check_jsonl).splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-                reason = str(obj.get("reason", "")).strip()
-                if reason:
-                    m = reason.upper().replace(" ", "_") + "_FINISH"
-                    if m not in markers:
-                        markers.append(m)
-            except json.JSONDecodeError:
-                continue
+    for line in read_text(repo_root / task_rel / "check.jsonl").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            reason = str(obj.get("reason", "")).strip()
+            if reason:
+                m = reason.upper().replace(" ", "_") + "_FINISH"
+                if m not in markers:
+                    markers.append(m)
+        except json.JSONDecodeError:
+            continue
     return markers or ["ALL_CHECKS_FINISH"]
+
+# PLACEHOLDER_MAIN2
 
 
 def main() -> int:
-    try:
-        input_data = json.load(sys.stdin)
-    except json.JSONDecodeError:
+    input_data = read_hook_input()
+    if not input_data:
         return 0
 
     if input_data.get("hook_event_name") != "SubagentStop":
         return 0
-
     if input_data.get("subagent_type") != TARGET_AGENT:
         return 0
 
@@ -187,15 +155,10 @@ def main() -> int:
             save_state(repo_root, state)
             print(json.dumps({"decision": "allow", "reason": msg}, ensure_ascii=False))
         else:
-            print(
-                json.dumps(
-                    {
-                        "decision": "block",
-                        "reason": f"Iteration {state['iteration']}/{MAX_ITERATIONS}. Verification failed:\n{msg}\n\nFix and try again.",
-                    },
-                    ensure_ascii=False,
-                )
-            )
+            print(json.dumps({
+                "decision": "block",
+                "reason": f"Iteration {state['iteration']}/{MAX_ITERATIONS}. Verification failed:\n{msg}\n\nFix and try again.",
+            }, ensure_ascii=False))
         return 0
 
     # marker fallback
@@ -208,18 +171,17 @@ def main() -> int:
         print(json.dumps({"decision": "allow", "reason": "Completion markers found."}, ensure_ascii=False))
         return 0
 
-    print(
-        json.dumps(
-            {
-                "decision": "block",
-                "reason": f"Iteration {state['iteration']}/{MAX_ITERATIONS}. Missing markers: {', '.join(missing)}.\n\nRun the gates and only output markers after they pass.",
-            },
-            ensure_ascii=False,
-        )
-    )
+    print(json.dumps({
+        "decision": "block",
+        "reason": f"Iteration {state['iteration']}/{MAX_ITERATIONS}. Missing markers: {', '.join(missing)}.\n\nRun the gates and only output markers after they pass.",
+    }, ensure_ascii=False))
+
+    # Output success marker to stderr
+    sys.stderr.write("SubagentStop:osc-loop hook success\n")
+    sys.stderr.flush()
+
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

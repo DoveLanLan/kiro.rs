@@ -95,6 +95,12 @@ cmd_create() {
     branch="task/${slug}"
   fi
 
+  # Determine if change-workflow is required based on type
+  local requires_cw="true" cw_status="pending"
+  case "$task_type" in
+    hotfix|docs) requires_cw="false"; cw_status="null" ;;
+  esac
+
   jq -n \
     --arg name "$title" \
     --arg branch "$branch" \
@@ -102,7 +108,9 @@ cmd_create() {
     --arg description "$description" \
     --arg type "$task_type" \
     --arg depends "$depends" \
-    '{name:$name, type:$type, branch:$branch, priority:$priority, description:$description, depends_on:(if $depends == "" then [] else ($depends | split(",")) end), status:"planned", current_phase:0, next_action:[]}' \
+    --argjson requires_cw "$requires_cw" \
+    --arg cw_status "$cw_status" \
+    '{name:$name, type:$type, branch:$branch, priority:$priority, description:$description, depends_on:(if $depends == "" then [] else ($depends | split(",")) end), status:"planned", current_phase:0, next_action:[], requires_change_workflow:$requires_cw, change_workflow_status:(if $cw_status == "null" then null else $cw_status end)}' \
     >"$task_json"
 
   # Type-specific prd.md templates
@@ -192,6 +200,11 @@ EOF
 EOF
       ;;
   esac
+
+  # Create changes/ subdirectory for types that require change-workflow
+  if [[ "$requires_cw" == "true" ]]; then
+    mkdir -p "$task_dir/changes"
+  fi
 
   cat >"$task_dir/info.md" <<'EOF'
 # Tech notes
@@ -351,7 +364,28 @@ cmd_done() {
   local tmp="${task_json}.tmp"
   local now
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  jq --arg now "$now" '.status = "done" | .completed_at = $now' "$task_json" >"$tmp" && mv "$tmp" "$task_json"
+
+  # Check change-workflow closure if required
+  local requires_cw
+  requires_cw="$(jq -r '.requires_change_workflow // true' "$task_json" 2>/dev/null)"
+  if [[ "$requires_cw" == "true" ]]; then
+    local cw_status
+    cw_status="$(jq -r '.change_workflow_status // "pending"' "$task_json" 2>/dev/null)"
+    if [[ "$cw_status" != "closed" && "$cw_status" != "skipped" ]]; then
+      if [[ ! -f "$task_dir/changes/change-summary.md" ]]; then
+        echo "warn: change-workflow closure incomplete (missing changes/change-summary.md)"
+        echo "hint: run /osc:finish-work or create change-summary.md before marking done"
+      fi
+    fi
+    # Update change_workflow_status
+    if [[ -f "$task_dir/changes/change-summary.md" ]]; then
+      jq --arg now "$now" '.status = "done" | .completed_at = $now | .change_workflow_status = "closed"' "$task_json" >"$tmp" && mv "$tmp" "$task_json"
+    else
+      jq --arg now "$now" '.status = "done" | .completed_at = $now' "$task_json" >"$tmp" && mv "$tmp" "$task_json"
+    fi
+  else
+    jq --arg now "$now" '.status = "done" | .completed_at = $now' "$task_json" >"$tmp" && mv "$tmp" "$task_json"
+  fi
 
   # Append to progress log
   echo "[$now] DONE" >>"$task_dir/progress.log"

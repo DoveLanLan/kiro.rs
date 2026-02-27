@@ -1,0 +1,19 @@
+name: feature-team
+description: Standard team for feature development (plan → implement → check)
+roles:
+  - agent: plan
+    phase: 1
+    auto_start: true
+  - agent: research
+    phase: 1
+    auto_start: false
+  - agent: implement
+    phase: 2
+    depends_on:
+      - plan
+    auto_start: true
+  - agent: check
+    phase: 3
+    depends_on:
+      - implement
+    auto_start: true

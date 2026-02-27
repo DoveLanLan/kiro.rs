@@ -1,0 +1,14 @@
+{
+  "name": "fix docker alpine mirror fallback",
+  "type": "bugfix",
+  "branch": "task/fix-docker-alpine-mirror-fallback",
+  "priority": "P1",
+  "description": "",
+  "depends_on": [],
+  "status": "done",
+  "current_phase": 0,
+  "next_action": [],
+  "requires_change_workflow": true,
+  "change_workflow_status": "closed",
+  "completed_at": "2026-02-27T03:23:47Z"
+}

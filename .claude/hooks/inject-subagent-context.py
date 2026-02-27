@@ -16,41 +16,19 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _osc_utils import (
+    DIR_OSC,
+    find_repo_root,
+    get_current_task,
+    hook_output,
+    read_hook_input,
+    read_json,
+    read_text,
+)
 
-DIR_OSC = ".osc"
-FILE_CURRENT_TASK = ".current-task"
-
-AGENTS = {"implement", "check", "debug", "research", "plan"}
+AGENTS = {"implement", "check", "debug", "research", "plan", "general-purpose", "Explore", "Bash"}
 AGENTS_REQUIRE_TASK = {"implement", "check", "debug"}
-
-
-def find_repo_root(start: Path) -> Path | None:
-    current = start.resolve()
-    while current != current.parent:
-        if (current / DIR_OSC).is_dir():
-            return current
-        if (current / ".git").exists():
-            return current
-        current = current.parent
-    return None
-
-
-def read_text(path: Path, max_chars: int = 20_000) -> str:
-    try:
-        content = path.read_text(encoding="utf-8")
-        if len(content) > max_chars:
-            return content[:max_chars] + "\n…(truncated)"
-        return content
-    except Exception:
-        return ""
-
-
-def get_current_task(repo_root: Path) -> str | None:
-    p = repo_root / DIR_OSC / FILE_CURRENT_TASK
-    if not p.exists():
-        return None
-    raw = read_text(p).strip()
-    return raw or None
 
 
 def load_jsonl_context(repo_root: Path, jsonl_path: Path) -> list[dict]:
@@ -71,7 +49,7 @@ def load_jsonl_context(repo_root: Path, jsonl_path: Path) -> list[dict]:
 
 
 def load_agent_yaml(repo_root: Path, agent_name: str) -> str:
-    """Read .osc/agents/<agent_name>.yaml and return raw text (empty string if missing)."""
+    """Read .osc/agents/<agent_name>.yaml and return raw text."""
     p = repo_root / DIR_OSC / "agents" / f"{agent_name}.yaml"
     return read_text(p) if p.exists() else ""
 
@@ -86,24 +64,14 @@ def load_inbox_messages(repo_root: Path, agent_name: str, max_messages: int = 5)
     for team_dir in teams_dir.iterdir():
         if not team_dir.is_dir():
             continue
-        team_json = team_dir / "team.json"
-        if not team_json.exists():
+        team_data = read_json(team_dir / "team.json")
+        if not isinstance(team_data, dict) or team_data.get("status") != "running":
             continue
-        try:
-            team_data = json.loads(team_json.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        if team_data.get("status") != "running":
-            continue
-
         msg_dir = team_dir / "messages"
         if not msg_dir.is_dir():
             continue
         for msg_file in msg_dir.glob("*.json"):
-            try:
-                msg = json.loads(msg_file.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                continue
+            msg = read_json(msg_file)
             if not isinstance(msg, dict):
                 continue
             to = msg.get("to", "")
@@ -125,8 +93,9 @@ def load_inbox_messages(repo_root: Path, agent_name: str, max_messages: int = 5)
         lines.append(f"[from: {sender} | type: {msg_type} | {ts}]")
         lines.append(body)
         lines.append("")
-
     return "\n".join(lines).rstrip()
+
+# PLACEHOLDER_BUILD
 
 
 def build_prompt(subagent: str, original_prompt: str, repo_root: Path, task_dir: Path | None) -> str:
@@ -147,9 +116,38 @@ def build_prompt(subagent: str, original_prompt: str, repo_root: Path, task_dir:
         if info:
             parts.append("=== info.md ===\n" + info)
 
-    # Spec quick index (always available)
+    # Spec quick index
     parts.append("=== .osc/workflow.md ===\n" + read_text(osc_dir / "workflow.md"))
     parts.append("=== .osc/spec/shared/index.md ===\n" + read_text(osc_dir / "spec/shared/index.md"))
+
+    for spec_sub in ("frontend", "backend", "guides"):
+        spec_index = osc_dir / "spec" / spec_sub / "index.md"
+        if spec_index.exists():
+            parts.append(f"=== .osc/spec/{spec_sub}/index.md ===\n" + read_text(spec_index))
+
+    project_spec = osc_dir / "project-spec.md"
+    if project_spec.exists():
+        parts.append("=== .osc/project-spec.md ===\n" + read_text(project_spec))
+
+    # Agent memory
+    memory_file = osc_dir / "memory" / "by-agent" / f"{subagent}.json"
+    memories = read_json(memory_file)
+    if isinstance(memories, list) and memories:
+        memories.sort(key=lambda m: m.get("timestamp", ""), reverse=True)
+        recent = memories[:10]
+        mem_lines = []
+        for m in recent:
+            mtype = m.get("type", "note")
+            summary = m.get("summary", "")
+            detail = m.get("detail", "")
+            tags = ", ".join(m.get("tags", []))
+            line = f"  [{mtype}] {summary}"
+            if tags:
+                line += f" (tags: {tags})"
+            if detail and detail != summary:
+                line += f"\n    {detail[:200]}"
+            mem_lines.append(line)
+        parts.append("=== Agent Memory (recent) ===\n" + "\n".join(mem_lines))
 
     # Agent capability metadata
     agent_yaml = load_agent_yaml(repo_root, subagent)
@@ -179,15 +177,15 @@ def build_prompt(subagent: str, original_prompt: str, repo_root: Path, task_dir:
     parts.append("\n=== Original prompt ===\n" + (original_prompt or ""))
     return "\n\n".join(parts)
 
+# PLACEHOLDER_MAIN3
+
 
 def main() -> int:
-    try:
-        input_data = json.load(sys.stdin)
-    except json.JSONDecodeError:
+    input_data = read_hook_input()
+    if not input_data:
         return 0
 
-    tool_name = input_data.get("tool_name", "")
-    if tool_name != "Task":
+    if input_data.get("tool_name", "") != "Task":
         return 0
 
     tool_input = input_data.get("tool_input", {}) or {}
@@ -204,36 +202,26 @@ def main() -> int:
     task_dir = repo_root / task_rel if task_rel else None
     if subagent_type in AGENTS_REQUIRE_TASK:
         if not task_rel or not task_dir or not task_dir.exists():
-            output = {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                    "message": (
-                        '[osc] No active task. Run '
-                        '`./.osc/scripts/task.sh create "<title>"` '
-                        'or `./.osc/scripts/task.sh select <task-dir>` '
-                        'first for full context injection.'
-                    ),
-                }
-            }
-            print(json.dumps(output, ensure_ascii=False))
+            hook_output(
+                "PreToolUse",
+                '[osc] No active task. Run '
+                '`./.osc/scripts/task.sh create "<title>"` '
+                'or `./.osc/scripts/task.sh select <task-dir>` '
+                'first for full context injection.',
+                permissionDecision="allow",
+            )
             return 0
 
     original_prompt = tool_input.get("prompt", "") or ""
     new_prompt = build_prompt(subagent_type, original_prompt, repo_root, task_dir)
 
-    output = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-            "updatedInput": {**tool_input, "prompt": new_prompt},
-        }
-    }
-
-    print(json.dumps(output, ensure_ascii=False))
+    hook_output(
+        "PreToolUse",
+        permissionDecision="allow",
+        updatedInput={**tool_input, "prompt": new_prompt},
+    )
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
