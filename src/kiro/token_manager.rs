@@ -634,10 +634,14 @@ impl MultiTokenManager {
                 }
                 CredentialEntry {
                     id,
-                    credentials: cred,
+                    credentials: cred.clone(),
                     failure_count: 0,
-                    disabled: false,
-                    disabled_reason: None,
+                    disabled: cred.disabled, // 从配置文件读取 disabled 状态
+                    disabled_reason: if cred.disabled {
+                        Some(DisabledReason::Manual)
+                    } else {
+                        None
+                    },
                     success_count: 0,
                     last_used_at: None,
                 }
@@ -1022,6 +1026,8 @@ impl MultiTokenManager {
                 .map(|e| {
                     let mut cred = e.credentials.clone();
                     cred.canonicalize_auth_method();
+                    // 同步 disabled 状态到凭据对象
+                    cred.disabled = e.disabled;
                     cred
                 })
                 .collect()
@@ -1655,6 +1661,9 @@ impl MultiTokenManager {
 
         // 持久化更改
         self.persist_credentials()?;
+
+        // 立即回写统计数据，清除已删除凭据的残留条目
+        self.save_stats();
 
         tracing::info!("已删除凭据 #{}", id);
         Ok(())
