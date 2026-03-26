@@ -4,9 +4,10 @@ This directory contains the production deployment artifacts for running `kiro-rs
 
 ## Topology
 
-- `kiro-rs` does not publish any public host port.
+- `kiro-rs` does not publish any public internet host port.
 - The service joins the external Docker network `cli-proxy-api-proxy`.
 - `CLIProxyAPI` reaches it over container DNS as `http://kiro-rs:8990`.
+- The admin UI/API can be reached privately over the Tailscale IP and a dedicated host port.
 
 ## Server Layout
 
@@ -27,9 +28,10 @@ Recommended root on the VPS:
 1. Copy this `deploy/` directory to `/opt/kiro-rs/`.
 2. Copy `.env.example` to `.env`.
 3. Ensure `SHARED_NETWORK_NAME=cli-proxy-api-proxy` unless you deliberately changed the CLIProxyAPI network name.
-4. Create `data/config.json`.
-5. Create `data/credentials.json`.
-6. Optionally mount AWS SSO cache data into `data/aws-sso-cache/` if your credential bootstrap depends on it.
+4. Set `TAILSCALE_BIND_IP` to the VPS Tailscale IPv4 and `TAILSCALE_ADMIN_PORT` to the management port you want to expose only on Tailscale.
+5. Create `data/config.json`.
+6. Create `data/credentials.json`.
+7. Optionally mount AWS SSO cache data into `data/aws-sso-cache/` if your credential bootstrap depends on it.
 
 ## Production Config Expectations
 
@@ -40,11 +42,12 @@ Your production `config.json` should listen on all container interfaces so other
   "host": "0.0.0.0",
   "port": 8990,
   "apiKey": "set-a-strong-runtime-api-key",
+  "adminApiKey": "set-a-strong-admin-api-key",
   "region": "us-east-1"
 }
 ```
 
-If you need the embedded admin UI/API for private operator use, set `adminApiKey` as well. This deployment does not expose it publicly.
+Setting `adminApiKey` enables the embedded admin UI/API. This deployment exposes it only on the Tailscale-bound host port, not on the public internet.
 
 ## CLIProxyAPI Integration
 
@@ -55,6 +58,17 @@ http://kiro-rs:8990
 ```
 
 This works because both stacks share the same external Docker network.
+
+## Private Admin Access
+
+After deployment, from a device already connected to the same tailnet:
+
+- Admin UI: `http://100.67.99.9:18990/admin/`
+- Admin API base: `http://100.67.99.9:18990/api/admin/`
+
+You can also use the MagicDNS/Tailnet hostname form if enabled on your devices.
+
+The admin UI/API requires the configured `adminApiKey`.
 
 ## GHCR Notes
 

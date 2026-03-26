@@ -3,6 +3,8 @@ services:
     image: ${KIRO_RS_IMAGE:?set KIRO_RS_IMAGE}
     container_name: kiro-rs
     restart: unless-stopped
+    ports:
+      - "${TAILSCALE_BIND_IP:?set TAILSCALE_BIND_IP}:${TAILSCALE_ADMIN_PORT:-18990}:8990"
     volumes:
       - ./data/config.json:/app/config/config.json
       - ./data/credentials.json:/app/config/credentials.json
