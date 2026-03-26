@@ -1,0 +1,13 @@
+{
+  "name": "Deploy kiro-rs to VPS as internal service for CLIProxyAPI",
+  "type": "feature",
+  "branch": "task/vps-internal-service-for-cliproxyapi",
+  "priority": "P1",
+  "description": "",
+  "depends_on": [],
+  "status": "planned",
+  "current_phase": 0,
+  "next_action": [],
+  "requires_change_workflow": true,
+  "change_workflow_status": "pending"
+}

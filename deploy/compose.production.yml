@@ -1,0 +1,21 @@
+services:
+  kiro:
+    image: ${KIRO_RS_IMAGE:?set KIRO_RS_IMAGE}
+    container_name: kiro-rs
+    restart: unless-stopped
+    volumes:
+      - ./data/config.json:/app/config/config.json
+      - ./data/credentials.json:/app/config/credentials.json
+      - ./data/aws-sso-cache:/root/.aws/sso/cache:ro
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      KIRO_BOOTSTRAP_CREDENTIALS_FROM_AWS_SSO_CACHE: "1"
+    networks:
+      cliproxyapi_proxy:
+        aliases:
+          - kiro-rs
+
+networks:
+  cliproxyapi_proxy:
+    external: true
+    name: ${SHARED_NETWORK_NAME:?set SHARED_NETWORK_NAME}

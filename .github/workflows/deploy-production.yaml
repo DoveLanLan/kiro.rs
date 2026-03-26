@@ -1,0 +1,84 @@
+name: deploy-production
+
+on:
+  workflow_run:
+    workflows:
+      - Build and Push Docker Images
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag to deploy from GHCR
+        required: true
+        default: master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production
+  cancel-in-progress: true
+
+env:
+  DEPLOY_HOST: 23.175.201.12
+  DEPLOY_PORT: "22"
+  DEPLOY_USER: root
+  DEPLOY_ROOT: /opt/kiro-rs
+
+jobs:
+  deploy:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'master')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Determine deploy ref and image
+        id: target
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            DEPLOY_REF="${GITHUB_SHA}"
+            IMAGE_TAG="${{ inputs.image_tag }}"
+          else
+            DEPLOY_REF="${{ github.event.workflow_run.head_sha }}"
+            IMAGE_TAG="sha-${{ github.event.workflow_run.head_sha }}"
+          fi
+          echo "deploy_ref=${DEPLOY_REF}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/dovelanlan/kiro-rs:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout deploy assets
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.deploy_ref }}
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Package deploy assets
+        run: tar czf /tmp/kiro-rs-deploy.tgz -C deploy .
+
+      - name: Upload deploy assets
+        run: scp -P "$DEPLOY_PORT" /tmp/kiro-rs-deploy.tgz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/kiro-rs-deploy.tgz"
+
+      - name: Install deploy assets on server
+        run: |
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "\
+            mkdir -p '$DEPLOY_ROOT' && \
+            tar xzf /tmp/kiro-rs-deploy.tgz -C '$DEPLOY_ROOT'"
+
+      - name: Deploy production stack
+        run: |
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "\
+            cd '$DEPLOY_ROOT' && \
+            KIRO_RS_IMAGE='${{ steps.target.outputs.image }}' \
+            SHARED_NETWORK_NAME='cli-proxy-api-proxy' \
+            bash scripts/remote-deploy.sh"

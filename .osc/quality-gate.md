@@ -1,41 +1,56 @@
-- **Assumptions:**
-  - User-facing failure is Docker build-time Alpine repository fetch error.
-  - Docker files are the only intended change scope for this fix.
+# Quality Gate Report
 
-- **Suspected Change Scope:**
-  - `Dockerfile`
-  - `docker-compose.yml`
-  - task artifacts under `.osc/tasks/02-27-fix-docker-alpine-mirror-fallback/changes/`
+- Date: 2026-03-26
+- Task: `.osc/tasks/03-26-vps-internal-service-for-cliproxyapi`
 
-- **Detected Gates:**
-  - Gate Name: Docker build path
-    - Confidence: High
-    - Evidence: `AGENTS.md` Docker section, user command `docker compose up -d --build`
-  - Gate Name: Compose config validity
-    - Confidence: High
-    - Evidence: `docker-compose.yml`
-  - Gate Name: Rust/UI build are indirect via Docker build stages
-    - Confidence: Medium
-    - Evidence: multi-stage `Dockerfile` (`node:22-alpine`, `rust:1.92-alpine`)
+**Assumptions:**
+- `kiro-rs` is deployed as an internal dependency of CLIProxyAPI on the same VPS.
+- The external Docker network `cli-proxy-api-proxy` is owned by the deployed CLIProxyAPI stack.
+- Live `config.json` and `credentials.json` remain server-side only.
 
-- **Suggested Gate Run (Local):**
-  - `docker compose config`
-  - `docker compose build --no-cache kiro`
-  - `docker compose up -d --build`
-  - `docker compose logs --tail=200 kiro`
+**Suspected Change Scope:**
+- `.github/workflows/docker-build.yaml`
+- `.github/workflows/deploy-production.yaml`
+- `deploy/`
+- `.osc/tasks/03-26-vps-internal-service-for-cliproxyapi/changes/`
 
-- **Final Self-Review:**
-  - Security & secrets: no new secrets introduced.
-  - Edge cases & error handling: added multi-mirror retry and explicit failure after all candidates fail.
-  - Backward compatibility / migrations: no app-level migration or API change.
-  - API/contract compatibility: unaffected.
-  - Observability: build logs now show mirror attempts and fallback path.
-  - Config/env changes: new optional `ALPINE_MIRROR` build arg.
-  - Performance risk: minimal; retries only occur when mirrors fail.
-  - Rollback plan: revert Dockerfile/compose changes.
+**Detected Gates:**
+- Gate Name: Rust build baseline
+  - Confidence: High
+  - Evidence: `AGENTS.md` recommends `cargo build`
+- Gate Name: Workflow syntax sanity
+  - Confidence: Medium
+  - Evidence: tracked changes add GitHub Actions YAML files
+- Gate Name: Production Compose validation
+  - Confidence: High
+  - Evidence: `deploy/compose.production.yml`
+- Gate Name: Shell deploy script validation
+  - Confidence: High
+  - Evidence: `deploy/scripts/remote-deploy.sh`
 
-- **PR-ready checklist:**
-  - [x] `docker compose config`
-  - [ ] `docker compose build --no-cache kiro`
-  - [ ] `docker compose up -d --build`
-  - [ ] `docker compose logs --tail=200 kiro`
+**Executed Gates (Local):**
+- `ruby -e 'require "yaml"; ...'`
+  - Result: passed for `.github/workflows/docker-build.yaml`, `.github/workflows/deploy-production.yaml`, and `deploy/compose.production.yml`
+- `docker compose --env-file deploy/.env.example -f deploy/compose.production.yml config`
+  - Result: passed
+- `bash -n deploy/scripts/remote-deploy.sh`
+  - Result: passed
+- `cargo build -q`
+  - Result: passed with existing repo warnings only
+
+**Final Self-Review:**
+- Security & secrets: no live Kiro credentials were committed; deployment expects runtime files on the VPS.
+- Edge cases & error handling: remote deploy fails fast on missing config files or missing shared Docker network.
+- Backward compatibility / migrations: local/dev compose remains intact; production deployment is isolated under `deploy/`.
+- API/contract compatibility: the intended upstream path for CLIProxyAPI is explicitly `http://kiro-rs:8990` on the shared Docker network.
+- Config/env changes: production now expects `KIRO_RS_IMAGE` and `SHARED_NETWORK_NAME`.
+- Performance risk: low; no public ingress or TLS layer was added.
+- Rollback plan: redeploy an older GHCR image tag or revert the workflow / `deploy/` changes.
+
+**PR-ready checklist:**
+- [x] Rust build still passes
+- [x] GitHub workflow YAML parses
+- [x] Production Compose expands successfully
+- [x] Remote deploy shell script passes `bash -n`
+- [ ] Live GHCR publish and VPS deploy
+  - Pending repository secrets in this fork and first server bootstrap under `/opt/kiro-rs`.
