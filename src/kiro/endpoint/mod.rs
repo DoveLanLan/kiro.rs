@@ -70,11 +70,21 @@ pub struct RequestContext<'a> {
     pub config: &'a Config,
 }
 
-/// 默认的 MONTHLY_REQUEST_COUNT 判断逻辑
+/// 默认的额度耗尽判断逻辑
 ///
 /// 同时识别顶层 `reason` 字段和嵌套 `error.reason` 字段。
 pub fn default_is_monthly_request_limit(body: &str) -> bool {
-    if body.contains("MONTHLY_REQUEST_COUNT") {
+    fn is_quota_exhausted_reason(reason: &str) -> bool {
+        matches!(
+            reason,
+            "MONTHLY_REQUEST_COUNT" | "OVERAGE_REQUEST_LIMIT_EXCEEDED"
+        )
+    }
+
+    if ["MONTHLY_REQUEST_COUNT", "OVERAGE_REQUEST_LIMIT_EXCEEDED"]
+        .iter()
+        .any(|reason| body.contains(reason))
+    {
         return true;
     }
 
@@ -85,7 +95,7 @@ pub fn default_is_monthly_request_limit(body: &str) -> bool {
     if value
         .get("reason")
         .and_then(|v| v.as_str())
-        .is_some_and(|v| v == "MONTHLY_REQUEST_COUNT")
+        .is_some_and(is_quota_exhausted_reason)
     {
         return true;
     }
@@ -93,7 +103,7 @@ pub fn default_is_monthly_request_limit(body: &str) -> bool {
     value
         .pointer("/error/reason")
         .and_then(|v| v.as_str())
-        .is_some_and(|v| v == "MONTHLY_REQUEST_COUNT")
+        .is_some_and(is_quota_exhausted_reason)
 }
 
 /// 默认的 bearer token 失效判断逻辑
@@ -114,6 +124,18 @@ mod tests {
     #[test]
     fn test_default_monthly_request_limit_nested_reason() {
         let body = r#"{"error":{"reason":"MONTHLY_REQUEST_COUNT"}}"#;
+        assert!(default_is_monthly_request_limit(body));
+    }
+
+    #[test]
+    fn test_default_overage_request_limit_detects_reason() {
+        let body = r#"{"message":"You have reached the limit for overages.","reason":"OVERAGE_REQUEST_LIMIT_EXCEEDED"}"#;
+        assert!(default_is_monthly_request_limit(body));
+    }
+
+    #[test]
+    fn test_default_overage_request_limit_nested_reason() {
+        let body = r#"{"error":{"reason":"OVERAGE_REQUEST_LIMIT_EXCEEDED"}}"#;
         assert!(default_is_monthly_request_limit(body));
     }
 
