@@ -103,6 +103,19 @@ pub struct KiroCredentials {
     /// 凭据是否被禁用（默认为 false）
     #[serde(default)]
     pub disabled: bool,
+
+    /// Kiro API Key（headless 模式）
+    /// 格式: ksk_xxxxxxxx
+    /// 设置后直接作为 Bearer Token 使用，无需 refreshToken
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kiro_api_key: Option<String>,
+
+    /// 端点名称（可选）
+    ///
+    /// 决定该凭据走哪套 Kiro API。未配置时回退到 `config.defaultEndpoint`（默认 "ide"）。
+    /// 端点名必须在启动时注册的端点 registry 中存在。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
 }
 
 /// 判断是否为零（用于跳过序列化）
@@ -113,6 +126,8 @@ fn is_zero(value: &u32) -> bool {
 fn canonicalize_auth_method_value(value: &str) -> &str {
     if value.eq_ignore_ascii_case("builder-id") || value.eq_ignore_ascii_case("iam") {
         "idc"
+    } else if value.eq_ignore_ascii_case("api_key") || value.eq_ignore_ascii_case("apikey") {
+        "api_key"
     } else {
         value
     }
@@ -181,22 +196,6 @@ impl CredentialsConfig {
         }
     }
 
-    /// 获取凭据数量
-    pub fn len(&self) -> usize {
-        match self {
-            CredentialsConfig::Single(_) => 1,
-            CredentialsConfig::Multiple(creds) => creds.len(),
-        }
-    }
-
-    /// 判断是否为空
-    pub fn is_empty(&self) -> bool {
-        match self {
-            CredentialsConfig::Single(_) => false,
-            CredentialsConfig::Multiple(creds) => creds.is_empty(),
-        }
-    }
-
     /// 判断是否为多凭据格式（数组格式）
     pub fn is_multiple(&self) -> bool {
         matches!(self, CredentialsConfig::Multiple(_))
@@ -248,26 +247,6 @@ impl KiroCredentials {
         }
     }
 
-    /// 从 JSON 字符串解析凭证
-    pub fn from_json(json_string: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json_string)
-    }
-
-    /// 从文件加载凭证
-    pub fn load<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let content = fs::read_to_string(path.as_ref())?;
-        if content.is_empty() {
-            anyhow::bail!("凭证文件为空: {:?}", path.as_ref());
-        }
-        let credentials = Self::from_json(&content)?;
-        Ok(credentials)
-    }
-
-    /// 序列化为格式化的 JSON 字符串
-    pub fn to_pretty_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(self)
-    }
-
     pub fn canonicalize_auth_method(&mut self) {
         let auth_method = match &self.auth_method {
             Some(m) => m,
@@ -293,6 +272,29 @@ impl KiroCredentials {
             // 如果还没有获取订阅信息，暂时允许（首次使用时会获取）
             None => true,
         }
+    }
+
+    /// 检查是否为 API Key 凭据
+    ///
+    /// API Key 凭据直接使用 kiro_api_key 作为 Bearer Token，无需 refreshToken
+    pub fn is_api_key_credential(&self) -> bool {
+        self.kiro_api_key.is_some()
+            || self
+                .auth_method
+                .as_deref()
+                .map(|m| m.eq_ignore_ascii_case("api_key") || m.eq_ignore_ascii_case("apikey"))
+                .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+impl KiroCredentials {
+    fn from_json(json_string: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json_string)
+    }
+
+    fn to_pretty_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
     }
 }
 
@@ -353,6 +355,8 @@ mod tests {
             proxy_username: None,
             proxy_password: None,
             disabled: false,
+            kiro_api_key: None,
+            endpoint: None,
         };
 
         let json = creds.to_pretty_json().unwrap();
@@ -390,7 +394,6 @@ mod tests {
         let json = r#"{"refreshToken": "test", "expiresAt": "2025-12-31T00:00:00Z"}"#;
         let config: CredentialsConfig = serde_json::from_str(json).unwrap();
         assert!(matches!(config, CredentialsConfig::Single(_)));
-        assert_eq!(config.len(), 1);
     }
 
     #[test]
@@ -401,7 +404,7 @@ mod tests {
         ]"#;
         let config: CredentialsConfig = serde_json::from_str(json).unwrap();
         assert!(matches!(config, CredentialsConfig::Multiple(_)));
-        assert_eq!(config.len(), 2);
+        assert_eq!(config.into_sorted_credentials().len(), 2);
     }
 
     #[test]
@@ -450,7 +453,6 @@ mod tests {
 
     #[test]
     fn test_region_field_serialization() {
-        // 测试序列化时正确输出 region 字段
         let creds = KiroCredentials {
             id: None,
             access_token: None,
@@ -472,6 +474,8 @@ mod tests {
             proxy_username: None,
             proxy_password: None,
             disabled: false,
+            kiro_api_key: None,
+            endpoint: None,
         };
 
         let json = creds.to_pretty_json().unwrap();
@@ -481,7 +485,6 @@ mod tests {
 
     #[test]
     fn test_region_field_none_not_serialized() {
-        // 测试 region 为 None 时不序列化
         let creds = KiroCredentials {
             id: None,
             access_token: None,
@@ -503,6 +506,8 @@ mod tests {
             proxy_username: None,
             proxy_password: None,
             disabled: false,
+            kiro_api_key: None,
+            endpoint: None,
         };
 
         let json = creds.to_pretty_json().unwrap();
@@ -616,6 +621,8 @@ mod tests {
             proxy_username: None,
             proxy_password: None,
             disabled: false,
+            kiro_api_key: None,
+            endpoint: None,
         };
 
         let json = original.to_pretty_json().unwrap();

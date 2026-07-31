@@ -6,12 +6,8 @@
 /config/credentials.json
 /.idea
 /test.json
-/Cargo.lock
 /admin-ui/node_modules/
-/admin-ui/dist/*
-!/admin-ui/dist/.gitkeep
-/admin-ui/pnpm-lock.yaml
-/admin-ui/package-lock.json
+/admin-ui/dist/
 /admin-ui/tsconfig.tsbuildinfo
 /credentials.*
 .ace-tool/

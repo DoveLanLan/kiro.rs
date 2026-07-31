@@ -15,6 +15,8 @@
 
 ---
 
+#### [LINUX DO 讨论帖](https://linux.do/t/topic/1571986)
+
 ## 免责声明
 
 本项目仅供研究使用, Use at your own risk, 使用本项目所导致的任何后果由使用人承担, 与本项目无关。
@@ -188,6 +190,8 @@ docker-compose up
 | `proxyPassword` | string | - | 代理密码 |
 | `adminApiKey` | string | - | Admin API 密钥，配置后启用凭据管理 API 和 Web 管理界面 |
 | `loadBalancingMode` | string | `priority` | 负载均衡模式：`priority`（按优先级）或 `balanced`（均衡分配） |
+| `extractThinking` | boolean | `true` | 非流式响应的 thinking 块提取。启用后 `<thinking>` 标签会被解析为独立的 `thinking` 内容块 |
+| `defaultEndpoint` | string | `ide` | 默认 Kiro 端点。凭据未显式指定 `endpoint` 时使用。当前支持：`ide` |
 
 完整配置示例：
 
@@ -211,7 +215,8 @@ docker-compose up
    "proxyUsername": "user",
    "proxyPassword": "pass",
    "adminApiKey": "sk-admin-your-secret-key",
-   "loadBalancingMode": "priority"
+   "loadBalancingMode": "priority",
+   "extractThinking": true
 }
 ```
 
@@ -240,6 +245,7 @@ docker-compose up
 | `proxyUrl`     | string | 凭据级代理 URL（可选，特殊值 `direct` 表示不使用代理）       |
 | `proxyUsername`| string | 凭据级代理用户名（可选）                                |
 | `proxyPassword`| string | 凭据级代理密码（可选）                                 |
+| `endpoint`     | string | 凭据级端点名称（可选，未配置时使用 `config.defaultEndpoint`）|
 
 说明：
 - IdC / Builder-ID / IAM 在本项目里属于同一种登录方式，配置时统一使用 `authMethod: "idc"`
@@ -431,10 +437,17 @@ RUST_LOG=debug ./target/release/kiro-rs
 
 | Anthropic 模型 | Kiro 模型 |
 |----------------|-----------|
-| `*sonnet*` | `claude-sonnet-4.5` |
+| `*sonnet-5*` | `claude-sonnet-5` |
+| `*sonnet*`（含 4.6/4-6） | `claude-sonnet-4.6` |
+| `*sonnet*`（含 4.5/4-5） | `claude-sonnet-4.5` |
+| `*opus-5*` | `claude-opus-5` |
+| `*opus*`（含 4.8/4-8） | `claude-opus-4.8` |
+| `*opus*`（含 4.7/4-7） | `claude-opus-4.7` |
+| `*opus*`（含 4.6/4-6） | `claude-opus-4.6` |
 | `*opus*`（含 4.5/4-5） | `claude-opus-4.5` |
-| `*opus*`（其他） | `claude-opus-4.6` |
 | `*haiku*` | `claude-haiku-4.5` |
+
+Sonnet 5 的 thinking 行为与已知限制见 [docs/claude-sonnet-5.md](docs/claude-sonnet-5.md)。
 
 ## Admin（可选）
 

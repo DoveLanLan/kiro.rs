@@ -6,11 +6,11 @@
 FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/admin-ui
-COPY admin-ui/package.json ./
+COPY admin-ui/package.json admin-ui/pnpm-lock.yaml admin-ui/.npmrc admin-ui/pnpm-workspace.yaml ./
 RUN npm install -g pnpm
 COPY admin-ui ./
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
-    pnpm install && pnpm build
+    pnpm install --frozen-lockfile && pnpm build
 
 FROM rust:1.92-alpine AS builder
 
@@ -26,7 +26,7 @@ RUN set -eux; \
     for mirror in "${primary_mirror}" "dl-cdn.alpinelinux.org" "mirrors.aliyun.com" "mirrors.tuna.tsinghua.edu.cn"; do \
       echo "Trying Alpine mirror: ${mirror}" >&2; \
       sed -i "s|http://[^/]*/alpine|https://${mirror}/alpine|g; s|https://[^/]*/alpine|https://${mirror}/alpine|g" /etc/apk/repositories; \
-      if apk add --no-cache musl-dev openssl-dev openssl-libs-static ca-certificates; then \
+      if apk add --no-cache musl-dev perl make; then \
         echo "Using Alpine mirror: ${mirror}" >&2; \
         installed=1; \
         break; \
@@ -61,12 +61,12 @@ RUN if [ -n "${CARGO_REGISTRY_MIRROR}" ]; then \
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
-    if [ -f Cargo.lock ]; then cargo build --release --locked; else cargo build --release; fi && \
+    if [ -f Cargo.lock ]; then cargo build --release --no-default-features --locked; else cargo build --release --no-default-features; fi && \
     install -m 0755 /app/target/release/kiro-rs /app/kiro-rs
 
 FROM alpine:3.21
 
-COPY --from=builder /etc/ssl /etc/ssl
+RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 COPY --from=builder /app/kiro-rs /app/kiro-rs
