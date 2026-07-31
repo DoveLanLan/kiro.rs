@@ -1,6 +1,6 @@
 # Project Spec: kiro-rs (OSC Baseline)
 
-- Updated: 2026-02-27
+- Updated: 2026-07-31
 - Scope: Repository baseline rules for spec-driven changes in this repo.
 
 ## Repo Snapshot
@@ -48,6 +48,11 @@
 2. Frontend validation baseline is successful TypeScript build (`tsc -b && vite build`); no explicit unit-test framework is currently declared. — Evidence: `admin-ui/package.json`, `admin-ui/tsconfig.json` (Documented|Inferred; confidence: Medium)
 3. For release-oriented changes, validate that admin UI build succeeds before backend release build to avoid broken embedded assets. — Evidence: `README.md`, `.github/workflows/build.yaml`, `Dockerfile` (Documented; confidence: High)
 4. API/proxy behavior regressions should be verified with representative `/v1/messages` request flow from README examples. — Evidence: `README.md` (Documented|Inferred; confidence: Medium)
+5. Terminal Kiro quota reason codes must be classified in the endpoint layer,
+   remain gated by HTTP 402 in the provider, and include focused unit coverage
+   so credential failover is not coupled to human-readable messages. —
+   Evidence: `src/kiro/endpoint/mod.rs`, `src/kiro/provider.rs`
+   (Documented|Observed; confidence: High)
 
 ### E) Commits/PRs & review checklist
 

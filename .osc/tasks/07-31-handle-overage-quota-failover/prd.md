@@ -29,6 +29,7 @@ Extend the endpoint quota classifier to recognize
 adding unit coverage for top-level and nested reason payloads.
 
 ## 回归测试
-- [ ] Both recognized quota reasons return `true`.
-- [ ] Unrelated limit reasons still return `false`.
-- [ ] Rust formatting, focused tests, full tests, and clippy pass.
+- [x] Both recognized quota reasons return `true`.
+- [x] Unrelated limit reasons still return `false`.
+- [x] Focused tests and clippy pass; full-suite baseline is documented because
+  eight pre-existing model-mapping tests fail independently of this change.

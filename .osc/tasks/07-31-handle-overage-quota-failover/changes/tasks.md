@@ -6,10 +6,10 @@
 ## Checklist
 
 - [x] Create OSC proposal, specification, and task records before source edits.
-- [ ] Extend quota-reason classification for
+- [x] Extend quota-reason classification for
   `OVERAGE_REQUEST_LIMIT_EXCEEDED`.
-- [ ] Add focused top-level and nested response tests.
-- [ ] Run format, test, and lint quality gates.
-- [ ] Rebuild and deploy to bytevirt.
-- [ ] Verify the running container and startup logs.
-- [ ] Record change summary, regression evidence, and rollback notes.
+- [x] Add focused top-level and nested response tests.
+- [x] Run format, test, and lint quality gates.
+- [x] Rebuild and deploy to bytevirt.
+- [x] Verify the running container and startup logs.
+- [x] Record change summary, regression evidence, and rollback notes.
