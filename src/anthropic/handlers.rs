@@ -414,17 +414,29 @@ async fn handle_stream_request(
     let stream = create_sse_stream(response, ctx, initial_events);
 
     // 返回 SSE 响应
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/event-stream")
-        .header(header::CACHE_CONTROL, "no-cache")
-        .header(header::CONNECTION, "keep-alive")
+    streaming_response_builder()
         .body(Body::from_stream(stream))
         .unwrap()
 }
 
-/// Ping 事件间隔（25秒）
-const PING_INTERVAL_SECS: u64 = 25;
+/// Ping 事件间隔（10秒）
+///
+/// 保持间隔短于常见反向代理的空闲超时，避免 Claude Code 在等待上游首个
+/// 可用事件时被中间层提前断开。
+const PING_INTERVAL_SECS: u64 = 10;
+
+/// 构造 Anthropic SSE 响应的公共响应头。
+///
+/// `X-Accel-Buffering: no` 和 `no-transform` 用于告知常见反向代理不要缓冲
+/// 或改写 SSE 响应。代理仍需自行配置足够长的读取超时。
+fn streaming_response_builder() -> axum::http::response::Builder {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/event-stream")
+        .header(header::CACHE_CONTROL, "no-cache, no-transform")
+        .header(header::CONNECTION, "keep-alive")
+        .header("X-Accel-Buffering", "no")
+}
 
 /// 创建 ping 事件的 SSE 字符串
 fn create_ping_sse() -> Bytes {
@@ -444,7 +456,7 @@ fn create_sse_stream(
             .map(|e| Ok(Bytes::from(e.to_sse_string()))),
     );
 
-    // 然后处理 Kiro 响应流，同时每25秒发送 ping 保活
+    // 然后处理 Kiro 响应流，同时每10秒发送 ping 保活
     let body_stream = response.bytes_stream();
 
     let processing_stream = stream::unfold(
@@ -929,11 +941,7 @@ async fn handle_stream_request_buffered(
     let stream = create_buffered_sse_stream(response, ctx);
 
     // 返回 SSE 响应
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/event-stream")
-        .header(header::CACHE_CONTROL, "no-cache")
-        .header(header::CONNECTION, "keep-alive")
+    streaming_response_builder()
         .body(Body::from_stream(stream))
         .unwrap()
 }
@@ -1027,4 +1035,32 @@ fn create_buffered_sse_stream(
         },
     )
     .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PING_INTERVAL_SECS, streaming_response_builder};
+    use axum::{body::Body, http::header};
+
+    #[test]
+    fn streaming_response_disables_intermediary_buffering() {
+        let response = streaming_response_builder()
+            .body(Body::empty())
+            .expect("SSE response builder should produce a valid response");
+
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/event-stream"
+        );
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-cache, no-transform"
+        );
+        assert_eq!(response.headers()["x-accel-buffering"], "no");
+    }
+
+    #[test]
+    fn streaming_heartbeat_interval_is_shorter_than_common_idle_timeout() {
+        assert_eq!(PING_INTERVAL_SECS, 10);
+    }
 }

@@ -1,6 +1,6 @@
 # Project Spec: kiro-rs (OSC Baseline)
 
-- Updated: 2026-07-31
+- Updated: 2026-08-28
 - Scope: Repository baseline rules for spec-driven changes in this repo.
 
 ## Repo Snapshot

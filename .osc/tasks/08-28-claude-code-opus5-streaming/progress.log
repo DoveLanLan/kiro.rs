@@ -1,0 +1,2 @@
+[2026-08-28T03:00:42Z] Hardened Anthropic SSE headers, reduced heartbeat to 10s, added focused tests; debug/release builds pass. Full test/fmt/clippy baselines retain unrelated failures.
+[2026-08-28T03:01:16Z] DONE

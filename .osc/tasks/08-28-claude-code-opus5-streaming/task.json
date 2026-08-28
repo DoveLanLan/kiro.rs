@@ -1,0 +1,14 @@
+{
+  "name": "Fix Claude Code Opus 5 streaming",
+  "type": "bugfix",
+  "branch": "task/claude-code-opus5-streaming",
+  "priority": "P1",
+  "description": "",
+  "depends_on": [],
+  "status": "done",
+  "current_phase": 0,
+  "next_action": [],
+  "requires_change_workflow": true,
+  "change_workflow_status": "closed",
+  "completed_at": "2026-08-28T03:01:16Z"
+}

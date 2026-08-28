@@ -390,7 +390,7 @@ RUST_LOG=debug ./target/release/kiro-rs
 > **`/cc/v1/messages` 与 `/v1/messages` 的区别**：
 > - `/v1/messages`：实时流式返回，`message_start` 中的 `input_tokens` 是估算值
 > - `/cc/v1/messages`：缓冲模式，等待上游流完成后，用从 `contextUsageEvent` 计算的准确 `input_tokens` 更正 `message_start`，然后一次性返回所有事件
-> - 等待期间会每 25 秒发送 `ping` 事件保活
+> - 等待期间会每 10 秒发送 `ping` 事件保活，并通过 `X-Accel-Buffering: no` 请求中间代理关闭 SSE 缓冲
 
 ### Thinking 模式
 

@@ -59,6 +59,14 @@ http://kiro-rs:8990
 
 This works because both stacks share the same external Docker network.
 
+## Streaming Proxy Requirements
+
+For Claude Code streaming requests, keep the `text/event-stream` response
+unbuffered through every intermediary. The service emits
+`X-Accel-Buffering: no` and a 10-second SSE heartbeat, but any Nginx/Caddy/CDN
+layer must still disable response buffering/compression and use a read timeout
+longer than the expected model generation time.
+
 ## Private Admin Access
 
 After deployment, from a device already connected to the same tailnet:
