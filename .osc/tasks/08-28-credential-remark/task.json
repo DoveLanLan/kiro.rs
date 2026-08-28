@@ -1,0 +1,14 @@
+{
+  "name": "Add credential remark label",
+  "type": "feature",
+  "branch": "task/credential-remark",
+  "priority": "P2",
+  "description": "",
+  "depends_on": [],
+  "status": "in_progress",
+  "current_phase": 0,
+  "next_action": [],
+  "requires_change_workflow": true,
+  "change_workflow_status": "ready",
+  "started_at": "2026-08-28T01:49:33Z"
+}

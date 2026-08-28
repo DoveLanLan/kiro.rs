@@ -80,6 +80,7 @@ impl AdminService {
                 api_key_hash: entry.api_key_hash,
                 masked_api_key: entry.masked_api_key,
                 email: entry.email,
+                remark: entry.remark,
                 success_count: entry.success_count,
                 last_used_at: entry.last_used_at.clone(),
                 has_proxy: entry.has_proxy,
@@ -122,6 +123,13 @@ impl AdminService {
     pub fn set_priority(&self, id: u64, priority: u32) -> Result<(), AdminServiceError> {
         self.token_manager
             .set_priority(id, priority)
+            .map_err(|e| self.classify_error(e, id))
+    }
+
+    /// 设置凭据备注
+    pub fn set_remark(&self, id: u64, remark: String) -> Result<(), AdminServiceError> {
+        self.token_manager
+            .set_remark(id, remark)
             .map_err(|e| self.classify_error(e, id))
     }
 
@@ -229,6 +237,7 @@ impl AdminService {
             api_region: req.api_region,
             machine_id: req.machine_id,
             email: req.email,
+            remark: None, // 备注通过 POST /credentials/:id/remark 单独设置
             subscription_title: None, // 将在首次获取使用额度时自动更新
             proxy_url: req.proxy_url,
             proxy_username: req.proxy_username,

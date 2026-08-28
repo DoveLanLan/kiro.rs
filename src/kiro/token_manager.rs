@@ -467,6 +467,16 @@ pub(crate) async fn get_usage_limits(
 // 多凭据 Token 管理器
 // ============================================================================
 
+/// 生成凭据的显示标签（用于日志）
+///
+/// 有备注时格式为 `#2[工作号]`，无备注（或备注为空白）时退化为 `#2`
+pub fn credential_label(id: u64, remark: Option<&str>) -> String {
+    match remark {
+        Some(r) if !r.trim().is_empty() => format!("#{}[{}]", id, r.trim()),
+        _ => format!("#{}", id),
+    }
+}
+
 /// 单个凭据条目的状态
 struct CredentialEntry {
     /// 凭据唯一 ID
@@ -541,6 +551,9 @@ pub struct CredentialEntrySnapshot {
     pub masked_api_key: Option<String>,
     /// 用户邮箱（用于前端显示）
     pub email: Option<String>,
+    /// 用户自定义备注（用于前端显示）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remark: Option<String>,
     /// API 调用成功次数
     pub success_count: u64,
     /// 最后一次 API 调用时间（RFC3339 格式）
@@ -686,8 +699,8 @@ impl MultiTokenManager {
                     .unwrap_or(false)
             {
                 tracing::warn!(
-                    "凭据 #{} 配置了 authMethod=api_key 但缺少 kiroApiKey 字段，已自动禁用",
-                    entry.id
+                    "凭据 {} 配置了 authMethod=api_key 但缺少 kiroApiKey 字段，已自动禁用",
+                    credential_label(entry.id, entry.credentials.remark.as_deref())
                 );
                 entry.disabled = true;
                 entry.disabled_reason = Some(DisabledReason::InvalidConfig);
@@ -905,10 +918,18 @@ impl MultiTokenManager {
                     // refreshToken 永久失效 → 立即禁用，不累计重试
                     let has_available =
                         if e.downcast_ref::<RefreshTokenInvalidError>().is_some() {
-                            tracing::warn!("凭据 #{} refreshToken 永久失效: {}", id, e);
+                            tracing::warn!(
+                                "凭据 {} refreshToken 永久失效: {}",
+                                credential_label(id, credentials.remark.as_deref()),
+                                e
+                            );
                             self.report_refresh_token_invalid(id)
                         } else {
-                            tracing::warn!("凭据 #{} Token 刷新失败: {}", id, e);
+                            tracing::warn!(
+                                "凭据 {} Token 刷新失败: {}",
+                                credential_label(id, credentials.remark.as_deref()),
+                                e
+                            );
                             self.report_refresh_failure(id)
                         };
                     attempt_count += 1;
@@ -1204,8 +1225,8 @@ impl MultiTokenManager {
                 entry.success_count += 1;
                 entry.last_used_at = Some(Utc::now().to_rfc3339());
                 tracing::debug!(
-                    "凭据 #{} API 调用成功（累计 {} 次）",
-                    id,
+                    "凭据 {} API 调用成功（累计 {} 次）",
+                    credential_label(id, entry.credentials.remark.as_deref()),
                     entry.success_count
                 );
             }
@@ -1237,10 +1258,11 @@ impl MultiTokenManager {
             entry.failure_count += 1;
             entry.last_used_at = Some(Utc::now().to_rfc3339());
             let failure_count = entry.failure_count;
+            let label = credential_label(id, entry.credentials.remark.as_deref());
 
             tracing::warn!(
-                "凭据 #{} API 调用失败（{}/{}）",
-                id,
+                "凭据 {} API 调用失败（{}/{}）",
+                label,
                 failure_count,
                 MAX_FAILURES_PER_CREDENTIAL
             );
@@ -1248,7 +1270,7 @@ impl MultiTokenManager {
             if failure_count >= MAX_FAILURES_PER_CREDENTIAL {
                 entry.disabled = true;
                 entry.disabled_reason = Some(DisabledReason::TooManyFailures);
-                tracing::error!("凭据 #{} 已连续失败 {} 次，已被禁用", id, failure_count);
+                tracing::error!("凭据 {} 已连续失败 {} 次，已被禁用", label, failure_count);
 
                 // 切换到优先级最高的可用凭据
                 if let Some(next) = entries
@@ -1258,8 +1280,8 @@ impl MultiTokenManager {
                 {
                     *current_id = next.id;
                     tracing::info!(
-                        "已切换到凭据 #{}（优先级 {}）",
-                        next.id,
+                        "已切换到凭据 {}（优先级 {}）",
+                        credential_label(next.id, next.credentials.remark.as_deref()),
                         next.credentials.priority
                     );
                 } else {
@@ -1298,8 +1320,9 @@ impl MultiTokenManager {
             entry.last_used_at = Some(Utc::now().to_rfc3339());
             // 设为阈值，便于在管理面板中直观看到该凭据已不可用
             entry.failure_count = MAX_FAILURES_PER_CREDENTIAL;
+            let label = credential_label(id, entry.credentials.remark.as_deref());
 
-            tracing::error!("凭据 #{} 额度已用尽（MONTHLY_REQUEST_COUNT），已被禁用", id);
+            tracing::error!("凭据 {} 额度已用尽（MONTHLY_REQUEST_COUNT），已被禁用", label);
 
             // 切换到优先级最高的可用凭据
             if let Some(next) = entries
@@ -1309,8 +1332,8 @@ impl MultiTokenManager {
             {
                 *current_id = next.id;
                 tracing::info!(
-                    "已切换到凭据 #{}（优先级 {}）",
-                    next.id,
+                    "已切换到凭据 {}（优先级 {}）",
+                    credential_label(next.id, next.credentials.remark.as_deref()),
                     next.credentials.priority
                 );
                 true
@@ -1344,10 +1367,11 @@ impl MultiTokenManager {
             entry.last_used_at = Some(Utc::now().to_rfc3339());
             entry.refresh_failure_count += 1;
             let refresh_failure_count = entry.refresh_failure_count;
+            let label = credential_label(id, entry.credentials.remark.as_deref());
 
             tracing::warn!(
-                "凭据 #{} Token 刷新失败（{}/{}）",
-                id,
+                "凭据 {} Token 刷新失败（{}/{}）",
+                label,
                 refresh_failure_count,
                 MAX_FAILURES_PER_CREDENTIAL
             );
@@ -1360,8 +1384,8 @@ impl MultiTokenManager {
             entry.disabled_reason = Some(DisabledReason::TooManyRefreshFailures);
 
             tracing::error!(
-                "凭据 #{} Token 已连续刷新失败 {} 次，已被禁用",
-                id,
+                "凭据 {} Token 已连续刷新失败 {} 次，已被禁用",
+                label,
                 refresh_failure_count
             );
 
@@ -1372,8 +1396,8 @@ impl MultiTokenManager {
             {
                 *current_id = next.id;
                 tracing::info!(
-                    "已切换到凭据 #{}（优先级 {}）",
-                    next.id,
+                    "已切换到凭据 {}（优先级 {}）",
+                    credential_label(next.id, next.credentials.remark.as_deref()),
                     next.credentials.priority
                 );
                 true
@@ -1407,10 +1431,11 @@ impl MultiTokenManager {
             entry.last_used_at = Some(Utc::now().to_rfc3339());
             entry.disabled = true;
             entry.disabled_reason = Some(DisabledReason::InvalidRefreshToken);
+            let label = credential_label(id, entry.credentials.remark.as_deref());
 
             tracing::error!(
-                "凭据 #{} refreshToken 已失效 (invalid_grant)，已立即禁用",
-                id
+                "凭据 {} refreshToken 已失效 (invalid_grant)，已立即禁用",
+                label
             );
 
             if let Some(next) = entries
@@ -1420,8 +1445,8 @@ impl MultiTokenManager {
             {
                 *current_id = next.id;
                 tracing::info!(
-                    "已切换到凭据 #{}（优先级 {}）",
-                    next.id,
+                    "已切换到凭据 {}（优先级 {}）",
+                    credential_label(next.id, next.credentials.remark.as_deref()),
                     next.credentials.priority
                 );
                 true
@@ -1449,8 +1474,8 @@ impl MultiTokenManager {
         {
             *current_id = next.id;
             tracing::info!(
-                "已切换到凭据 #{}（优先级 {}）",
-                next.id,
+                "已切换到凭据 {}（优先级 {}）",
+                credential_label(next.id, next.credentials.remark.as_deref()),
                 next.credentials.priority
             );
             true
@@ -1511,6 +1536,7 @@ impl MultiTokenManager {
                         None
                     },
                     email: e.credentials.email.clone(),
+                    remark: e.credentials.remark.clone(),
                     success_count: e.success_count,
                     last_used_at: e.last_used_at.clone(),
                     has_proxy: e.credentials.proxy_url.is_some(),
@@ -1571,6 +1597,29 @@ impl MultiTokenManager {
         }
         // 立即按新优先级重新选择当前凭据（无论持久化是否成功）
         self.select_highest_priority();
+        // 持久化更改
+        self.persist_credentials()?;
+        Ok(())
+    }
+
+    /// 设置凭据备注（Admin API）
+    ///
+    /// 空白备注会被规范化为 None（清除备注），避免文件中出现 `"remark": ""`。
+    /// 即使持久化失败，内存中的备注也会生效。
+    pub fn set_remark(&self, id: u64, remark: String) -> anyhow::Result<()> {
+        {
+            let mut entries = self.entries.lock();
+            let entry = entries
+                .iter_mut()
+                .find(|e| e.id == id)
+                .ok_or_else(|| anyhow::anyhow!("凭据不存在: {}", id))?;
+            let trimmed = remark.trim();
+            entry.credentials.remark = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            };
+        }
         // 持久化更改
         self.persist_credentials()?;
         Ok(())
@@ -1685,8 +1734,8 @@ impl MultiTokenManager {
                         entry.credentials.subscription_title =
                             Some(subscription_title.to_string());
                         tracing::info!(
-                            "凭据 #{} 订阅等级已更新: {:?} -> {}",
-                            id,
+                            "凭据 {} 订阅等级已更新: {:?} -> {}",
+                            credential_label(id, entry.credentials.remark.as_deref()),
                             old_title,
                             subscription_title
                         );
@@ -1812,10 +1861,13 @@ impl MultiTokenManager {
         validated_cred.api_region = new_cred.api_region;
         validated_cred.machine_id = new_cred.machine_id;
         validated_cred.email = new_cred.email;
+        validated_cred.remark = new_cred.remark;
         validated_cred.proxy_url = new_cred.proxy_url;
         validated_cred.proxy_username = new_cred.proxy_username;
         validated_cred.proxy_password = new_cred.proxy_password;
         validated_cred.kiro_api_key = new_cred.kiro_api_key;
+
+        let label = credential_label(new_id, validated_cred.remark.as_deref());
 
         {
             let mut entries = self.entries.lock();
@@ -1834,7 +1886,7 @@ impl MultiTokenManager {
         // 6. 持久化
         self.persist_credentials()?;
 
-        tracing::info!("成功添加凭据 #{}", new_id);
+        tracing::info!("成功添加凭据 {}", label);
         Ok(new_id)
     }
 
@@ -1855,7 +1907,7 @@ impl MultiTokenManager {
     /// - `Ok(())` - 删除成功
     /// - `Err(_)` - 凭据不存在、未禁用或持久化失败
     pub fn delete_credential(&self, id: u64) -> anyhow::Result<()> {
-        let was_current = {
+        let (was_current, label) = {
             let mut entries = self.entries.lock();
 
             // 查找凭据
@@ -1872,11 +1924,12 @@ impl MultiTokenManager {
             // 记录是否是当前凭据
             let current_id = *self.current_id.lock();
             let was_current = current_id == id;
+            let label = credential_label(id, entry.credentials.remark.as_deref());
 
             // 删除凭据
             entries.retain(|e| e.id != id);
 
-            was_current
+            (was_current, label)
         };
 
         // 如果删除的是当前凭据，切换到优先级最高的可用凭据
@@ -1900,7 +1953,7 @@ impl MultiTokenManager {
         // 立即回写统计数据，清除已删除凭据的残留条目
         self.save_stats();
 
-        tracing::info!("已删除凭据 #{}", id);
+        tracing::info!("已删除凭据 {}", label);
         Ok(())
     }
 
@@ -1940,7 +1993,10 @@ impl MultiTokenManager {
             tracing::warn!("强制刷新 Token 后持久化失败: {}", e);
         }
 
-        tracing::info!("凭据 #{} Token 已强制刷新", id);
+        tracing::info!(
+            "凭据 {} Token 已强制刷新",
+            credential_label(id, credentials.remark.as_deref())
+        );
         Ok(())
     }
 
@@ -2071,6 +2127,84 @@ mod idc_client_resolve_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_credential_label_with_remark() {
+        assert_eq!(credential_label(2, Some("工作号")), "#2[工作号]");
+    }
+
+    #[test]
+    fn test_credential_label_without_remark() {
+        assert_eq!(credential_label(2, None), "#2");
+    }
+
+    #[test]
+    fn test_credential_label_blank_remark_falls_back() {
+        // 空白备注视为无备注
+        assert_eq!(credential_label(2, Some("")), "#2");
+        assert_eq!(credential_label(2, Some("   ")), "#2");
+    }
+
+    #[test]
+    fn test_credential_label_trims_remark() {
+        assert_eq!(credential_label(2, Some(" 主账号 ")), "#2[主账号]");
+    }
+
+    #[test]
+    fn test_set_remark_persists_and_normalizes() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "kiro-rs-remark-test-{}",
+            fastrand::u64(..)
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let cred_path = temp_dir.join("credentials.json");
+        std::fs::write(
+            &cred_path,
+            r#"[{"refreshToken": "t1", "priority": 0}, {"refreshToken": "t2", "priority": 1}]"#,
+        )
+        .unwrap();
+
+        let config = Config::default();
+        let manager = MultiTokenManager::new(
+            config,
+            vec![
+                KiroCredentials::default(),
+                KiroCredentials::default(),
+            ],
+            None,
+            Some(cred_path.clone()),
+            true,
+        )
+        .unwrap();
+
+        // 设置备注
+        manager.set_remark(1, "  工作号  ".to_string()).unwrap();
+        // trim 后存储
+        {
+            let entries = manager.entries.lock();
+            let entry = entries.iter().find(|e| e.id == 1).unwrap();
+            assert_eq!(entry.credentials.remark, Some("工作号".to_string()));
+        }
+
+        // 空白备注清除
+        manager.set_remark(1, "   ".to_string()).unwrap();
+        {
+            let entries = manager.entries.lock();
+            let entry = entries.iter().find(|e| e.id == 1).unwrap();
+            assert_eq!(entry.credentials.remark, None);
+        }
+
+        // 重新设置并回写文件验证
+        manager.set_remark(1, "主账号".to_string()).unwrap();
+        let content = std::fs::read_to_string(&cred_path).unwrap();
+        assert!(content.contains("remark"));
+        assert!(content.contains("主账号"));
+
+        // 凭据不存在时报错
+        assert!(manager.set_remark(99, "x".to_string()).is_err());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 
     #[test]
     fn test_is_token_expired_with_expired_token() {

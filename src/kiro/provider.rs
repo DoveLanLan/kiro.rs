@@ -15,7 +15,7 @@ use crate::http_client::{ProxyConfig, build_client};
 use crate::kiro::endpoint::{KiroEndpoint, RequestContext};
 use crate::kiro::machine_id;
 use crate::kiro::model::credentials::KiroCredentials;
-use crate::kiro::token_manager::MultiTokenManager;
+use crate::kiro::token_manager::{credential_label, MultiTokenManager};
 use crate::model::config::TlsBackend;
 use parking_lot::Mutex;
 
@@ -221,12 +221,21 @@ impl KiroProvider {
                 // token 被上游失效：先尝试 force-refresh，每凭据仅一次机会
                 if endpoint.is_bearer_token_invalid(&body) && !force_refreshed.contains(&ctx.id) {
                     force_refreshed.insert(ctx.id);
-                    tracing::info!("凭据 #{} token 疑似被上游失效，尝试强制刷新", ctx.id);
+                    tracing::info!(
+                        "凭据 {} token 疑似被上游失效，尝试强制刷新",
+                        credential_label(ctx.id, ctx.credentials.remark.as_deref())
+                    );
                     if self.token_manager.force_refresh_token_for(ctx.id).await.is_ok() {
-                        tracing::info!("凭据 #{} token 强制刷新成功，重试请求", ctx.id);
+                        tracing::info!(
+                            "凭据 {} token 强制刷新成功，重试请求",
+                            credential_label(ctx.id, ctx.credentials.remark.as_deref())
+                        );
                         continue;
                     }
-                    tracing::warn!("凭据 #{} token 强制刷新失败，计入失败", ctx.id);
+                    tracing::warn!(
+                        "凭据 {} token 强制刷新失败，计入失败",
+                        credential_label(ctx.id, ctx.credentials.remark.as_deref())
+                    );
                 }
 
                 let has_available = self.token_manager.report_failure(ctx.id);
@@ -407,12 +416,21 @@ impl KiroProvider {
                 // token 被上游失效：先尝试 force-refresh，每凭据仅一次机会
                 if endpoint.is_bearer_token_invalid(&body) && !force_refreshed.contains(&ctx.id) {
                     force_refreshed.insert(ctx.id);
-                    tracing::info!("凭据 #{} token 疑似被上游失效，尝试强制刷新", ctx.id);
+                    tracing::info!(
+                        "凭据 {} token 疑似被上游失效，尝试强制刷新",
+                        credential_label(ctx.id, ctx.credentials.remark.as_deref())
+                    );
                     if self.token_manager.force_refresh_token_for(ctx.id).await.is_ok() {
-                        tracing::info!("凭据 #{} token 强制刷新成功，重试请求", ctx.id);
+                        tracing::info!(
+                            "凭据 {} token 强制刷新成功，重试请求",
+                            credential_label(ctx.id, ctx.credentials.remark.as_deref())
+                        );
                         continue;
                     }
-                    tracing::warn!("凭据 #{} token 强制刷新失败，计入失败", ctx.id);
+                    tracing::warn!(
+                        "凭据 {} token 强制刷新失败，计入失败",
+                        credential_label(ctx.id, ctx.credentials.remark.as_deref())
+                    );
                 }
 
                 let has_available = self.token_manager.report_failure(ctx.id);

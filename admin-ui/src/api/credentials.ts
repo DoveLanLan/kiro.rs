@@ -6,6 +6,7 @@ import type {
   SuccessResponse,
   SetDisabledRequest,
   SetPriorityRequest,
+  SetRemarkRequest,
   AddCredentialRequest,
   AddCredentialResponse,
 } from '@/types/api'
@@ -53,6 +54,18 @@ export async function setCredentialPriority(
   const { data } = await api.post<SuccessResponse>(
     `/credentials/${id}/priority`,
     { priority } as SetPriorityRequest
+  )
+  return data
+}
+
+// 设置凭据备注（空字符串表示清除备注）
+export async function setCredentialRemark(
+  id: number,
+  remark: string
+): Promise<SuccessResponse> {
+  const { data } = await api.post<SuccessResponse>(
+    `/credentials/${id}/remark`,
+    { remark } as SetRemarkRequest
   )
   return data
 }

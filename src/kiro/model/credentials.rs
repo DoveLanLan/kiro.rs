@@ -80,6 +80,10 @@ pub struct KiroCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
 
+    /// 用户自定义备注（用于区分不同账号，可选）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remark: Option<String>,
+
     /// 订阅等级（KIRO PRO+ / KIRO FREE 等）
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
@@ -350,6 +354,7 @@ mod tests {
             api_region: None,
             machine_id: None,
             email: None,
+            remark: None,
             subscription_title: None,
             proxy_url: None,
             proxy_username: None,
@@ -469,6 +474,7 @@ mod tests {
             api_region: None,
             machine_id: None,
             email: None,
+            remark: None,
             subscription_title: None,
             proxy_url: None,
             proxy_username: None,
@@ -501,6 +507,7 @@ mod tests {
             api_region: None,
             machine_id: None,
             email: None,
+            remark: None,
             subscription_title: None,
             proxy_url: None,
             proxy_username: None,
@@ -616,6 +623,7 @@ mod tests {
             api_region: None,
             machine_id: Some("c".repeat(64)),
             email: None,
+            remark: None,
             subscription_title: None,
             proxy_url: None,
             proxy_username: None,
@@ -900,5 +908,57 @@ mod tests {
         let creds = KiroCredentials::default();
         let result = creds.effective_proxy(None);
         assert_eq!(result, None);
+    }
+
+    // ============ remark 字段测试 ============
+
+    #[test]
+    fn test_remark_field_parsing() {
+        let json = r#"{
+            "refreshToken": "test_refresh",
+            "remark": "工作号"
+        }"#;
+        let creds = KiroCredentials::from_json(json).unwrap();
+        assert_eq!(creds.remark, Some("工作号".to_string()));
+    }
+
+    #[test]
+    fn test_remark_field_missing_backward_compat() {
+        // 旧格式 JSON 不包含 remark 字段，应正常解析
+        let json = r#"{"refreshToken": "test_refresh"}"#;
+        let creds = KiroCredentials::from_json(json).unwrap();
+        assert_eq!(creds.remark, None);
+    }
+
+    #[test]
+    fn test_remark_field_serialization() {
+        let mut creds = KiroCredentials::default();
+        creds.refresh_token = Some("test".to_string());
+        creds.remark = Some("主账号".to_string());
+
+        let json = creds.to_pretty_json().unwrap();
+        assert!(json.contains("remark"));
+        assert!(json.contains("主账号"));
+    }
+
+    #[test]
+    fn test_remark_field_none_not_serialized() {
+        let mut creds = KiroCredentials::default();
+        creds.refresh_token = Some("test".to_string());
+
+        let json = creds.to_pretty_json().unwrap();
+        assert!(!json.contains("remark"));
+    }
+
+    #[test]
+    fn test_remark_roundtrip() {
+        let mut original = KiroCredentials::default();
+        original.refresh_token = Some("refresh".to_string());
+        original.remark = Some("测试账号".to_string());
+
+        let json = original.to_pretty_json().unwrap();
+        let parsed = KiroCredentials::from_json(&json).unwrap();
+
+        assert_eq!(parsed.remark, original.remark);
     }
 }

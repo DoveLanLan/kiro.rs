@@ -17,6 +17,7 @@ export interface CredentialStatusItem {
   authMethod: string | null
   hasProfileArn: boolean
   email?: string
+  remark?: string
   refreshTokenHash?: string
   apiKeyHash?: string
   maskedApiKey?: string
@@ -61,6 +62,10 @@ export interface SetDisabledRequest {
 
 export interface SetPriorityRequest {
   priority: number
+}
+
+export interface SetRemarkRequest {
+  remark: string
 }
 
 // 添加凭据请求

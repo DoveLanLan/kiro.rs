@@ -19,6 +19,7 @@ import type { CredentialStatusItem, BalanceResponse } from '@/types/api'
 import {
   useSetDisabled,
   useSetPriority,
+  useSetRemark,
   useResetFailure,
   useDeleteCredential,
   useForceRefreshToken,
@@ -59,10 +60,13 @@ export function CredentialCard({
 }: CredentialCardProps) {
   const [editingPriority, setEditingPriority] = useState(false)
   const [priorityValue, setPriorityValue] = useState(String(credential.priority))
+  const [editingRemark, setEditingRemark] = useState(false)
+  const [remarkValue, setRemarkValue] = useState(credential.remark ?? '')
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
   const setDisabled = useSetDisabled()
   const setPriority = useSetPriority()
+  const setRemark = useSetRemark()
   const resetFailure = useResetFailure()
   const deleteCredential = useDeleteCredential()
   const forceRefresh = useForceRefreshToken()
@@ -93,6 +97,27 @@ export function CredentialCard({
         onSuccess: (res) => {
           toast.success(res.message)
           setEditingPriority(false)
+        },
+        onError: (err) => {
+          toast.error('操作失败: ' + (err as Error).message)
+        },
+      }
+    )
+  }
+
+  const handleRemarkChange = () => {
+    const newRemark = remarkValue.trim()
+    // 空白备注表示清除；与原值相同则不提交
+    if (newRemark === (credential.remark ?? '').trim()) {
+      setEditingRemark(false)
+      return
+    }
+    setRemark.mutate(
+      { id: credential.id, remark: newRemark },
+      {
+        onSuccess: (res) => {
+          toast.success(res.message)
+          setEditingRemark(false)
         },
         onError: (err) => {
           toast.error('操作失败: ' + (err as Error).message)
@@ -152,6 +177,9 @@ export function CredentialCard({
                 onCheckedChange={onToggleSelect}
               />
               <CardTitle className="text-lg flex items-center gap-2">
+                {credential.remark && (
+                  <span className="text-primary">{credential.remark}</span>
+                )}
                 {credential.email || `凭据 #${credential.id}`}
                 {credential.isCurrent && (
                   <Badge variant="success">当前</Badge>
@@ -188,6 +216,63 @@ export function CredentialCard({
         <CardContent className="space-y-4">
           {/* 信息网格 */}
           <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-muted-foreground">备注：</span>
+              {editingRemark ? (
+                <div className="inline-flex items-center gap-1 ml-1">
+                  <Input
+                    value={remarkValue}
+                    onChange={(e) => setRemarkValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRemarkChange()
+                      if (e.key === 'Escape') {
+                        setEditingRemark(false)
+                        setRemarkValue(credential.remark ?? '')
+                      }
+                    }}
+                    placeholder="输入备注，留空清除"
+                    className="w-28 h-7 text-sm"
+                    maxLength={50}
+                    autoFocus
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0"
+                    onClick={handleRemarkChange}
+                    disabled={setRemark.isPending}
+                  >
+                    ✓
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0"
+                    onClick={() => {
+                      setEditingRemark(false)
+                      setRemarkValue(credential.remark ?? '')
+                    }}
+                  >
+                    ✕
+                  </Button>
+                </div>
+              ) : (
+                <span
+                  className="font-medium cursor-pointer hover:underline ml-1"
+                  onClick={() => {
+                    setRemarkValue(credential.remark ?? '')
+                    setEditingRemark(true)
+                  }}
+                  title="点击编辑备注"
+                >
+                  {credential.remark || (
+                    <span className="text-muted-foreground">
+                      未设置<span className="text-xs">(点击编辑)</span>
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
             <div>
               <span className="text-muted-foreground">优先级：</span>
               {editingPriority ? (
